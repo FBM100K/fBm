@@ -1,6 +1,0 @@
-streamlit
-pandas
-yfinance
-plotly
-gspread
-oauth2client
