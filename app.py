@@ -13,19 +13,18 @@ from datetime import datetime
 st.set_page_config(page_title="Dashboard Portefeuille", layout="wide")
 st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM</h1>", unsafe_allow_html=True)
 
-# -----------------------
-# Google Sheets config via Streamlit Secrets
-# -----------------------
+
 SHEET_NAME = "transactions_dashboard"   # Nom de ta Google Sheet
 SCOPE = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
 
-# ⚠️ Utilisation des secrets Streamlit Cloud
+# ⚠️ Utilisation des secrets Streamlit Cloud (ajoutés via Settings > Secrets)
 creds_dict = st.secrets["google_service_account"]
-CREDS = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+CREDS = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), SCOPE)
 client = gspread.authorize(CREDS)
 sheet = client.open(SHEET_NAME).sheet1
 
+# Colonnes attendues
 EXPECTED_COLS = ["Date","Type","Ticker","Quantité","Prix","PnL réalisé (€/$)","PnL réalisé (%)"]
 
 # -----------------------
