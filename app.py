@@ -131,55 +131,88 @@ if "transactions" not in st.session_state:
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
-# ----------------------- Onglet 1 : Saisie Transactions -----------------------
+# ----------------------- Onglet 1 : Saisie Transactions avec recherche autocomplete -----------------------
 with tab1:
     st.header("Ajouter une transaction")
 
+    # Profil et type de transaction
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-    tickers_existants = sorted(set([tx.get("Ticker") for tx in st.session_state.transactions if tx.get("Ticker") and tx.get("Ticker") != "CASH"]))
+    # ---------------- TICKER AUTOCOMPLETE ----------------
+    # 1. Charger la liste de tickers Yahoo Finance
+    @st.cache_data(ttl=24*3600)
+    def load_yf_tickers():
+        # Liste de tickers US et leurs noms (tu peux étendre)
+        url = "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=most_actives"
+        import requests
+        tickers = {}
+        try:
+            r = requests.get(url)
+            data = r.json()
+            for quote in data['finance']['result'][0]['quotes']:
+                symbol = quote.get('symbol')
+                name = quote.get('shortName', "")
+                tickers[symbol] = name
+        except Exception:
+            pass
+        # Ajouter CASH si besoin
+        tickers["CASH"] = "Cash / Dépot"
+        return tickers
 
-    ticker_choice = st.selectbox(
-        "Ticker (ex: AAPL, BTC-USD)", 
-        options=[""] + tickers_existants,
-        index=0,
-        format_func=lambda x: x if x != "" else ""
-    )
+    tickers_dict = load_yf_tickers()
+    tickers_list = sorted([f"{s} - {n}" for s, n in tickers_dict.items() if n])
 
-    if ticker_choice == "":
-        ticker_input = st.text_input("Nouveau ticker (ex: AAPL)").upper().strip()
-        ticker = ticker_input
-    else:
-        ticker = ticker_choice
+    # 2. Champ texte pour recherche
+    ticker_search = st.text_input("Ticker / Nom (ex: AAPL ou Apple)").strip().upper()
 
+    # 3. Filtrer tickers selon saisie
+    suggestions = [t for t in tickers_list if ticker_search in t.upper()] if ticker_search else []
+    
+    # 4. Sélection parmi suggestions
+    ticker_selected = None
+    if suggestions:
+        ticker_choice = st.selectbox("Suggestions", [""] + suggestions, index=0)
+        if ticker_choice:
+            ticker_selected = ticker_choice.split(" - ")[0]  # ne garder que le ticker
+
+    # Quantité, prix, frais, date
     quantite = st.text_input("Quantité", "0")
     prix = st.text_input("Prix (€/$)", "0")
     frais = st.text_input("Frais (€/$)", "0")
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
+    # Bouton Ajouter
     if st.button("➕ Ajouter Transaction"):
+        # Conversion propre
         quantite = parse_float(quantite)
         prix = parse_float(prix)
         frais = parse_float(frais)
 
-        if type_tx in ("Achat", "Vente") and (not ticker):
+        # Validation
+        if type_tx in ("Achat", "Vente") and not ticker_selected:
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0:
             st.error("Prix doit être > 0 pour un dépôt.")
         elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
+            # Charger historique
             df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
+            
+            # S'assurer que la colonne "Profil" existe
             if "Profil" not in df_hist.columns:
                 df_hist["Profil"] = "Gas"
 
+            # Normaliser date
             try:
                 date_tx = pd.to_datetime(date_input)
             except Exception:
                 date_tx = pd.Timestamp.now()
 
             transaction = None
+            ticker = ticker_selected if ticker_selected else "CASH"
+
             if type_tx == "Dépot €":
                 transaction = {
                     "Profil": profil,
@@ -197,7 +230,7 @@ with tab1:
                     "Profil": profil,
                     "Date": date_tx,
                     "Type": "Achat",
-                    "Ticker": ticker.upper(),
+                    "Ticker": ticker,
                     "Quantité": quantite,
                     "Prix": round(prix,2),
                     "Frais (€/$)": round(frais,2),
@@ -220,7 +253,7 @@ with tab1:
                         "Profil": profil,
                         "Date": date_tx,
                         "Type": "Vente",
-                        "Ticker": ticker.upper(),
+                        "Ticker": ticker,
                         "Quantité": -abs(quantite),
                         "Prix": round(prix,2),
                         "Frais (€/$)": round(frais,2),
