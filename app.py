@@ -32,7 +32,7 @@ except Exception as e:
     sheet = None
 
 # Colonnes attendues
-EXPECTED_COLS = ["Date","Type","Ticker","Quantité","Prix","PnL réalisé (€/$)","PnL réalisé (%)"]
+EXPECTED_COLS = ["Date","Type","Ticker","Quantité","Prix","PnL réalisé (€/$)","PnL réalisé (%)", "Frais (€/$)"]
 
 # -----------------------
 # Helpers
@@ -146,6 +146,7 @@ with tab1:
 
     quantite = st.number_input("Quantité", min_value=0.0001, step=0.0001, format="%.4f")
     prix = st.number_input("Prix (€/$)", min_value=0.0, step=0.01, format="%.2f")
+    frais = st.number_input("Frais (€/$)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
     if st.button("➕ Ajouter Transaction"):
@@ -172,6 +173,7 @@ with tab1:
                     "Ticker": "CASH",
                     "Quantité": quantite,
                     "Prix": 1,
+                    "Frais": round(frais,2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -182,6 +184,7 @@ with tab1:
                     "Ticker": ticker.upper(),
                     "Quantité": quantite,
                     "Prix": round(prix,2),
+                    "Frais": round(frais,2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -195,7 +198,7 @@ with tab1:
                     achats = df_pos[df_pos["Quantité"] > 0]
                     total_qty_achats = achats["Quantité"].sum() if not achats.empty else 0
                     prix_moyen = ( (achats["Quantité"] * achats["Prix"]).sum() / total_qty_achats ) if total_qty_achats>0 else 0
-                    pnl_real = (prix - prix_moyen) * quantite
+                    pnl_real = (prix - prix_moyen) * quantite - frais
                     pnl_pct = ((prix - prix_moyen) / prix_moyen * 100) if prix_moyen != 0 else 0.0
                     transaction = {
                         "Date": date_tx,
@@ -203,6 +206,7 @@ with tab1:
                         "Ticker": ticker.upper(),
                         "Quantité": -abs(quantite),
                         "Prix": round(prix,2),
+                        "Frais": round(frais,2),
                         "PnL réalisé (€/$)": round(pnl_real,2),
                         "PnL réalisé (%)": round(pnl_pct,2)
                     }
@@ -238,8 +242,9 @@ with tab2:
         total_achats = (df_tx[df_tx["Type"] == "Achat"]["Quantité"] * df_tx[df_tx["Type"] == "Achat"]["Prix"]).sum() if not df_tx[df_tx["Type"] == "Achat"].empty else 0.0
         ventes = df_tx[df_tx["Type"] == "Vente"]
         total_ventes = ((-ventes["Quantité"]) * ventes["Prix"]).sum() if not ventes.empty else 0.0
+        total_frais = df_tx["Frais"].sum() if "Frais" in df_tx.columns else 0.0
 
-        cash = total_depots + total_ventes - total_achats
+        cash = total_depots + total_ventes - total_achats - total_frais
 
         df_actifs = df_tx[df_tx["Ticker"] != "CASH"]
         portefeuille = pd.DataFrame()
