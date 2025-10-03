@@ -1,11 +1,10 @@
-import gspread
 import streamlit as st
+import gspread
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
-from oauth2client.service_account import ServiceAccountCredentials
-import json
 from datetime import datetime
+from google.oauth2.service_account import Credentials
 
 # -----------------------
 # Config
@@ -13,16 +12,21 @@ from datetime import datetime
 st.set_page_config(page_title="Dashboard Portefeuille", layout="wide")
 st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM</h1>", unsafe_allow_html=True)
 
-
 SHEET_NAME = "transactions_dashboard"   # Nom de ta Google Sheet
 SCOPE = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
 
-# ⚠️ Utilisation des secrets Streamlit Cloud (ajoutés via Settings > Secrets)
-creds_dict = st.secrets["google_service_account"]
-CREDS = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), SCOPE)
-client = gspread.authorize(CREDS)
-sheet = client.open(SHEET_NAME).sheet1
+# ---------- Auth Google Sheets (robuste) ----------
+# Dans Streamlit Cloud : st.secrets["google_service_account"] doit contenir tout l'objet JSON du service account (dict)
+try:
+    creds_info = st.secrets["google_service_account"]
+    credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
+    client = gspread.authorize(credentials)
+    sheet = client.open(SHEET_NAME).sheet1
+except Exception as e:
+    st.error("Erreur d'authentification Google Sheets — vérifie st.secrets et le partage de la feuille.")
+    st.exception(e)
+    sheet = None
 
 # Colonnes attendues
 EXPECTED_COLS = ["Date","Type","Ticker","Quantité","Prix","PnL réalisé (€/$)","PnL réalisé (%)"]
@@ -32,47 +36,34 @@ EXPECTED_COLS = ["Date","Type","Ticker","Quantité","Prix","PnL réalisé (€/$
 # -----------------------
 @st.cache_data(ttl=60)
 def fetch_last_close(tickers):
+    """Récupère le dernier cours de clôture par ticker.
+       Utilise yfinance ticker.history en fallback pour plus de robustesse."""
+    closes = {}
     if not tickers:
-        return {}
+        return closes
     tickers = list(set(tickers))
-    try:
-        data = yf.download(tickers, period="5d", progress=False, threads=True)
-        closes = {}
-        if isinstance(data, pd.DataFrame) and 'Close' in data.columns:
-            close_df = data['Close']
-            for tk in tickers:
-                if tk in close_df.columns:
-                    series = close_df[tk].dropna()
-                    closes[tk] = float(series.iloc[-1]) if not series.empty else None
-                else:
-                    closes[tk] = None
-        else:
-            last = data['Close'].dropna()
-            for tk in tickers:
-                closes[tk] = float(last.iloc[-1]) if not last.empty else None
-        return closes
-    except Exception:
-        closes = {}
-        for tk in tickers:
-            try:
-                t = yf.Ticker(tk)
-                hist = t.history(period="5d")
-                if not hist.empty:
-                    closes[tk] = float(hist['Close'].iloc[-1])
-                else:
-                    closes[tk] = None
-            except:
+    for tk in tickers:
+        try:
+            t = yf.Ticker(tk)
+            hist = t.history(period="7d")
+            if not hist.empty and 'Close' in hist.columns:
+                closes[tk] = float(hist['Close'].dropna().iloc[-1])
+            else:
                 closes[tk] = None
-        return closes
+        except Exception:
+            closes[tk] = None
+    return closes
 
 def load_transactions():
+    if sheet is None:
+        return pd.DataFrame(columns=EXPECTED_COLS)
     try:
         records = sheet.get_all_records()
         df = pd.DataFrame(records)
         for c in EXPECTED_COLS:
             if c not in df.columns:
                 df[c] = None
-        # Convert Date column to datetime
+        # Convert Date column to datetime (keep NaT si invalide)
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         return df
     except Exception as e:
@@ -80,27 +71,47 @@ def load_transactions():
         return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_transactions(df):
+    """Ecrit la table entière en une seule opération (plus rapide / moins d'APIs)."""
+    if sheet is None:
+        st.error("Pas de connexion à Google Sheets : impossible d'enregistrer.")
+        return
     try:
+        # Prépare les rows (converts dates en ISO)
+        rows = []
+        for _, r in df.iterrows():
+            row = []
+            for c in EXPECTED_COLS:
+                val = r.get(c, "")
+                if pd.isna(val):
+                    row.append("")
+                elif isinstance(val, (pd.Timestamp, datetime)):
+                    row.append(val.isoformat())
+                else:
+                    row.append(val)
+            rows.append(row)
+        # Update sheet in bulk
         sheet.clear()
         sheet.append_row(EXPECTED_COLS)
-        for row in df.values.tolist():
-            # Convert datetime to ISO string pour Google Sheets
-            row_copy = [r.isoformat() if isinstance(r, (datetime, pd.Timestamp)) else r for r in row]
-            sheet.append_row(row_copy)
+        if rows:
+            sheet.append_rows(rows, value_input_option='USER_ENTERED')
     except Exception as e:
         st.error(f"Erreur écriture Google Sheet: {e}")
 
 def format_pct(val):
-    if pd.isna(val):
+    if pd.isna(val) or val is None:
         return ""
-    sign = "+" if val >= 0 else ""
-    return f"{sign}{val:.2f}%"
+    try:
+        sign = "+" if val >= 0 else ""
+        return f"{sign}{val:.2f}%"
+    except Exception:
+        return ""
 
 # -----------------------
 # State init
 # -----------------------
 if "transactions" not in st.session_state:
-    st.session_state.transactions = load_transactions().to_dict('records')
+    df = load_transactions()
+    st.session_state.transactions = df.to_dict('records')
 
 # -----------------------
 # Onglets
@@ -115,99 +126,95 @@ with tab1:
 
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-    tickers_existants = sorted(set([tx["Ticker"] for tx in st.session_state.transactions if tx["Ticker"] and tx["Ticker"] != "CASH"]))
+    tickers_existants = sorted(set([tx.get("Ticker") for tx in st.session_state.transactions if tx.get("Ticker") and tx.get("Ticker") != "CASH"]))
 
-    ticker = st.selectbox(
+    ticker_choice = st.selectbox(
         "Ticker (ex: AAPL, BTC-USD)", 
         options=[""] + tickers_existants,
         index=0,
         format_func=lambda x: x if x != "" else ""
     )
 
-    if ticker == "":
-        ticker = st.text_input("Nouveau ticker (ex: AAPL)").upper().strip()
+    if ticker_choice == "":
+        ticker_input = st.text_input("Nouveau ticker (ex: AAPL)").upper().strip()
+        ticker = ticker_input
+    else:
+        ticker = ticker_choice
 
     quantite = st.number_input("Quantité", min_value=0.0001, step=0.0001, format="%.4f")
     prix = st.number_input("Prix (€/$)", min_value=0.0, step=0.01, format="%.2f")
+    date_input = st.date_input("Date de transaction", value=datetime.today())
 
-    date_input = st.date_input("Date de transaction")
-    
     if st.button("➕ Ajouter Transaction"):
-        try:
-            date_tx = pd.to_datetime(date_input)
-            st.success(f"Date enregistrée : {date_tx}")
-        except Exception as e:
-            st.error(f"Format de date invalide ({e}). Utilisation de la date actuelle.")
-            date_tx = datetime.now()
-
-        df_hist = pd.DataFrame(st.session_state.transactions)
-        if df_hist.empty:
-            df_hist = pd.DataFrame(columns=EXPECTED_COLS)
-
-        transaction = None
-
-        if type_tx == "Dépot €":
-            transaction = {
-                "Date": date_input,
-                "Type": "Dépot €",
-                "Ticker": "CASH",
-                "Quantité": 1,
-                "Prix": round(prix,2),
-                "PnL réalisé (€/$)": 0.0,
-                "PnL réalisé (%)": 0.0
-            }
+        # Validation
+        if type_tx in ("Achat", "Vente") and (not ticker):
+            st.error("Ticker requis pour Achat/Vente.")
+        elif type_tx == "Dépot €" and prix <= 0:
+            st.error("Prix doit être > 0 pour un dépôt.")
+        elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
+            st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
-            if not ticker:
-                st.error("Ticker requis pour Achat/Vente.")
-            elif quantite <= 0 or prix <= 0:
-                st.error("Quantité et prix doivent être > 0.")
-            else:
-                ticker = ticker.upper()
-                if type_tx == "Achat":
-                    transaction = {
-                        "Date": date_input,
-                        "Type": "Achat",
-                        "Ticker": ticker,
-                        "Quantité": quantite,
-                        "Prix": round(prix,2),
-                        "PnL réalisé (€/$)": 0.0,
-                        "PnL réalisé (%)": 0.0
-                    }
-                elif type_tx == "Vente":
-                    df_pos = df_hist[df_hist["Ticker"] == ticker]
-                    qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
-                    if qty_pos < quantite:
-                        st.error("❌ Pas assez de titres pour vendre.")
-                    else:
-                        achats = df_pos[df_pos["Quantité"] > 0]
-                        total_qty_achats = achats["Quantité"].sum() if not achats.empty else 0
-                        prix_moyen = (achats["Quantité"] * achats["Prix"]).sum() / total_qty_achats if total_qty_achats > 0 else 0
-                        pnl_real = (prix - prix_moyen) * quantite
-                        pnl_pct = ((prix - prix_moyen) / prix_moyen * 100) if prix_moyen != 0 else 0
-                        transaction = {
-                            "Date": date_input,
-                            "Type": "Vente",
-                            "Ticker": ticker,
-                            "Quantité": -abs(quantite),
-                            "Prix": round(prix,2),
-                            "PnL réalisé (€/$)": round(pnl_real,2),
-                            "PnL réalisé (%)": round(pnl_pct,2)
-                        }
+            df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
+            # Normaliser date
+            try:
+                date_tx = pd.to_datetime(date_input)
+            except Exception:
+                date_tx = pd.Timestamp.now()
 
-        if transaction:
-            st.session_state.transactions.append(transaction)
-            df_save = pd.DataFrame(st.session_state.transactions)
-            save_transactions(df_save)
-            st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
+            transaction = None
+            if type_tx == "Dépot €":
+                transaction = {
+                    "Date": date_tx,
+                    "Type": "Dépot €",
+                    "Ticker": "CASH",
+                    "Quantité": 1,
+                    "Prix": round(prix,2),
+                    "PnL réalisé (€/$)": 0.0,
+                    "PnL réalisé (%)": 0.0
+                }
+            elif type_tx == "Achat":
+                transaction = {
+                    "Date": date_tx,
+                    "Type": "Achat",
+                    "Ticker": ticker.upper(),
+                    "Quantité": quantite,
+                    "Prix": round(prix,2),
+                    "PnL réalisé (€/$)": 0.0,
+                    "PnL réalisé (%)": 0.0
+                }
+            elif type_tx == "Vente":
+                df_pos = df_hist[df_hist["Ticker"] == ticker]
+                qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
+                if qty_pos < quantite:
+                    st.error("❌ Pas assez de titres pour vendre.")
+                    transaction = None
+                else:
+                    achats = df_pos[df_pos["Quantité"] > 0]
+                    total_qty_achats = achats["Quantité"].sum() if not achats.empty else 0
+                    prix_moyen = ( (achats["Quantité"] * achats["Prix"]).sum() / total_qty_achats ) if total_qty_achats>0 else 0
+                    pnl_real = (prix - prix_moyen) * quantite
+                    pnl_pct = ((prix - prix_moyen) / prix_moyen * 100) if prix_moyen != 0 else 0.0
+                    transaction = {
+                        "Date": date_tx,
+                        "Type": "Vente",
+                        "Ticker": ticker.upper(),
+                        "Quantité": -abs(quantite),
+                        "Prix": round(prix,2),
+                        "PnL réalisé (€/$)": round(pnl_real,2),
+                        "PnL réalisé (%)": round(pnl_pct,2)
+                    }
+
+            if transaction:
+                st.session_state.transactions.append(transaction)
+                df_save = pd.DataFrame(st.session_state.transactions)
+                save_transactions(df_save)
+                st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
     st.subheader("Historique des transactions")
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
-        st.dataframe(
-            df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200),
-            use_container_width=True
-        )
+        st.dataframe(df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200), use_container_width=True)
     else:
         st.info("Aucune transaction enregistrée.")
 
@@ -249,12 +256,9 @@ with tab2:
                 qty = grp.loc[grp["Ticker"]==t, "Quantité"].values[0]
                 avg_cost = prix_moy.get(t, 0.0)
                 current = closes.get(t, None)
-                if current is None:
-                    valeur, pnl_abs, pnl_pct = None, None, None
-                else:
-                    valeur = current * qty
-                    pnl_abs = (current - avg_cost) * qty
-                    pnl_pct = ((current - avg_cost)/avg_cost*100) if avg_cost != 0 else None
+                valeur = (current * qty) if (current is not None) else None
+                pnl_abs = ((current - avg_cost) * qty) if (current is not None) else None
+                pnl_pct = ((current - avg_cost)/avg_cost*100) if (avg_cost not in (0, None) and current is not None) else None
                 rows.append({
                     "Ticker": t,
                     "Quantité nette": qty,
