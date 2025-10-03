@@ -131,50 +131,61 @@ if "transactions" not in st.session_state:
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
-# ----------------------- Onglet 1 : Saisie Transactions avec recherche autocomplete -----------------------
+# ----------------------- Onglet 1 : Saisie Transactions avec Typeahead complet -----------------------
 with tab1:
     st.header("Ajouter une transaction")
 
-    # Profil et type de transaction
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-    # ---------------- TICKER AUTOCOMPLETE ----------------
-    # 1. Charger la liste de tickers Yahoo Finance
+    # ---------------- TYPEAHEAD TICKERS ----------------
+    import requests
+
     @st.cache_data(ttl=24*3600)
-    def load_yf_tickers():
-        # Liste de tickers US et leurs noms (tu peux étendre)
-        url = "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=most_actives"
-        import requests
+    def load_all_tickers():
+        """
+        Charge une liste étendue de tickers US et internationaux depuis Yahoo Finance.
+        Retourne un dict {ticker: nom}
+        """
         tickers = {}
-        try:
-            r = requests.get(url)
-            data = r.json()
-            for quote in data['finance']['result'][0]['quotes']:
-                symbol = quote.get('symbol')
-                name = quote.get('shortName', "")
-                tickers[symbol] = name
-        except Exception:
-            pass
-        # Ajouter CASH si besoin
+
+        # Exemple: US most actives
+        urls = [
+            "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=most_actives",
+            "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=gainers",
+            "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=losers",
+        ]
+
+        for url in urls:
+            try:
+                r = requests.get(url)
+                data = r.json()
+                for quote in data['finance']['result'][0]['quotes']:
+                    symbol = quote.get('symbol')
+                    name = quote.get('shortName', "")
+                    if symbol and name:
+                        tickers[symbol] = name
+            except Exception:
+                pass
+
+        # Ajouter manuellement CASH / Dépot
         tickers["CASH"] = "Cash / Dépot"
         return tickers
 
-    tickers_dict = load_yf_tickers()
-    tickers_list = sorted([f"{s} - {n}" for s, n in tickers_dict.items() if n])
+    tickers_dict = load_all_tickers()
+    tickers_list = [f"{s} - {n}" for s, n in tickers_dict.items()]
 
-    # 2. Champ texte pour recherche
+    # Champ texte pour recherche
     ticker_search = st.text_input("Ticker / Nom (ex: AAPL ou Apple)").strip().upper()
 
-    # 3. Filtrer tickers selon saisie
-    suggestions = [t for t in tickers_list if ticker_search in t.upper()] if ticker_search else []
-    
-    # 4. Sélection parmi suggestions
+    # Filtrer en live les tickers (typeahead)
+    suggestions = [t for t in tickers_list if ticker_search in t.upper()][:20] if ticker_search else []
+
     ticker_selected = None
     if suggestions:
         ticker_choice = st.selectbox("Suggestions", [""] + suggestions, index=0)
         if ticker_choice:
-            ticker_selected = ticker_choice.split(" - ")[0]  # ne garder que le ticker
+            ticker_selected = ticker_choice.split(" - ")[0]
 
     # Quantité, prix, frais, date
     quantite = st.text_input("Quantité", "0")
@@ -182,9 +193,8 @@ with tab1:
     frais = st.text_input("Frais (€/$)", "0")
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
-    # Bouton Ajouter
     if st.button("➕ Ajouter Transaction"):
-        # Conversion propre
+        # Conversion
         quantite = parse_float(quantite)
         prix = parse_float(prix)
         frais = parse_float(frais)
@@ -197,14 +207,10 @@ with tab1:
         elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
-            # Charger historique
             df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
-            
-            # S'assurer que la colonne "Profil" existe
             if "Profil" not in df_hist.columns:
                 df_hist["Profil"] = "Gas"
 
-            # Normaliser date
             try:
                 date_tx = pd.to_datetime(date_input)
             except Exception:
