@@ -16,7 +16,7 @@ SHEET_NAME = "transactions_dashboard"   # Nom de ta Google Sheet
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_info = st.secrets["google_service_account"]
 credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
-client = gspread.authorize(creds)
+client = gspread.authorize(credentials)
 sheet = client.open(SHEET_NAME).sheet1
 
 # ---------- Auth Google Sheets (robuste) ----------
@@ -315,3 +315,4 @@ with tab2:
 
         with st.expander("Voir transactions détaillées"):
             st.dataframe(df_tx.reset_index(drop=True), use_container_width=True)
+
