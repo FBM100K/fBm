@@ -32,7 +32,7 @@ except Exception as e:
     sheet = None
 
 # Colonnes attendues
-EXPECTED_COLS = ["Date","Type","Ticker","Quantité","Prix","PnL réalisé (€/$)","PnL réalisé (%)", "Frais (€/$)"]
+EXPECTED_COLS = ["Date","Profil","Type","Ticker","Quantité","Prix","PnL réalisé (€/$)","PnL réalisé (%)", "Frais (€/$)"]
 
 # -----------------------
 # Helpers
@@ -108,6 +108,14 @@ def format_pct(val):
         return f"{sign}{val:.2f}%"
     except Exception:
         return ""
+# Fonction utilitaire pour convertir nombre avec virgule
+def parse_float(val):
+    if val is None or val == "":
+        return 0.0
+    try:
+        return float(str(val).replace(",", "."))
+    except ValueError:
+        return 0.0
 
 # -----------------------
 # State init
@@ -120,6 +128,16 @@ if "transactions" not in st.session_state:
 # Onglets
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
+
+# ----------------------- Onglet 1 : Saisie Transactions -----------------------
+# Fonction utilitaire pour convertir nombre avec virgule
+def parse_float(val):
+    if val is None or val == "":
+        return 0.0
+    try:
+        return float(str(val).replace(",", "."))
+    except ValueError:
+        return 0.0
 
 # ----------------------- Onglet 1 : Saisie Transactions -----------------------
 with tab1:
@@ -143,12 +161,17 @@ with tab1:
     else:
         ticker = ticker_choice
 
-    quantite = st.number_input("Quantité", min_value=0.0001, step=0.0001, format="%.4f")
-    prix = st.number_input("Prix (€/$)", min_value=0.0, step=0.01, format="%.2f")
-    frais = st.number_input("Frais (€/$)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
+    quantite = st.text_input("Quantité", "0")
+    prix = st.text_input("Prix (€/$)", "0")
+    frais = st.text_input("Frais (€/$)", "0")
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
     if st.button("➕ Ajouter Transaction"):
+        # Conversion propre
+        quantite = parse_float(quantite)
+        prix = parse_float(prix)
+        frais = parse_float(frais)
+
         # Validation
         if type_tx in ("Achat", "Vente") and (not ticker):
             st.error("Ticker requis pour Achat/Vente.")
@@ -162,7 +185,7 @@ with tab1:
             
             # ✅ S'assurer que la colonne "Profil" existe
             if "Profil" not in df_hist.columns:
-                df_hist["Profil"] = "Gas"  # valeur par défaut pour les anciennes transactions
+                df_hist["Profil"] = "Gas"  # valeur par défaut pour anciennes transactions
 
             # Normaliser date
             try:
@@ -179,7 +202,7 @@ with tab1:
                     "Ticker": "CASH",
                     "Quantité": quantite,
                     "Prix": 1,
-                    "Frais": round(frais,2),
+                    "Frais (€/$)": round(frais,2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -191,15 +214,11 @@ with tab1:
                     "Ticker": ticker.upper(),
                     "Quantité": quantite,
                     "Prix": round(prix,2),
-                    "Frais": round(frais,2),
+                    "Frais (€/$)": round(frais,2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
             elif type_tx == "Vente":
-                # ✅ S'assurer que la colonne "Profil" existe dans df_hist
-                if "Profil" not in df_hist.columns:
-                    df_hist["Profil"] = "Gas"
-
                 df_pos = df_hist[(df_hist["Ticker"] == ticker) & (df_hist["Profil"] == profil)]
                 qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
                 if qty_pos < quantite:
@@ -218,7 +237,7 @@ with tab1:
                         "Ticker": ticker.upper(),
                         "Quantité": -abs(quantite),
                         "Prix": round(prix,2),
-                        "Frais": round(frais,2),
+                        "Frais (€/$)": round(frais,2),
                         "PnL réalisé (€/$)": round(pnl_real,2),
                         "PnL réalisé (%)": round(pnl_pct,2)
                     }
@@ -226,6 +245,11 @@ with tab1:
             if transaction:
                 st.session_state.transactions.append(transaction)
                 df_save = pd.DataFrame(st.session_state.transactions)
+                # ✅ Respect de l'ordre des colonnes
+                for col in EXPECTED_COLS:
+                    if col not in df_save.columns:
+                        df_save[col] = None
+                df_save = df_save[EXPECTED_COLS]
                 save_transactions(df_save)
                 st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
