@@ -148,86 +148,86 @@ with tab1:
     frais = st.number_input("Frais (€/$)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
-    if st.button("➕ Ajouter Transaction"):
-    # Validation
-    if type_tx in ("Achat", "Vente") and (not ticker):
-        st.error("Ticker requis pour Achat/Vente.")
-    elif type_tx == "Dépot €" and prix <= 0:
-        st.error("Prix doit être > 0 pour un dépôt.")
-    elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
-        st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
-    else:
-        # Charger historique
-        df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
-        
-        # ✅ S'assurer que la colonne "Profil" existe
-        if "Profil" not in df_hist.columns:
-            df_hist["Profil"] = "Gas"  # valeur par défaut pour les anciennes transactions
-
-        # Normaliser date
-        try:
-            date_tx = pd.to_datetime(date_input)
-        except Exception:
-            date_tx = pd.Timestamp.now()
-
-        transaction = None
-        if type_tx == "Dépot €":
-            transaction = {
-                "Profil": profil,
-                "Date": date_tx,
-                "Type": "Dépot €",
-                "Ticker": "CASH",
-                "Quantité": quantite,
-                "Prix": 1,
-                "Frais": round(frais,2),
-                "PnL réalisé (€/$)": 0.0,
-                "PnL réalisé (%)": 0.0
-            }
-        elif type_tx == "Achat":
-            transaction = {
-                "Profil": profil,
-                "Date": date_tx,
-                "Type": "Achat",
-                "Ticker": ticker.upper(),
-                "Quantité": quantite,
-                "Prix": round(prix,2),
-                "Frais": round(frais,2),
-                "PnL réalisé (€/$)": 0.0,
-                "PnL réalisé (%)": 0.0
-            }
-        elif type_tx == "Vente":
-            # ✅ S'assurer que la colonne "Profil" existe dans df_hist
+        if st.button("➕ Ajouter Transaction"):
+        # Validation
+        if type_tx in ("Achat", "Vente") and (not ticker):
+            st.error("Ticker requis pour Achat/Vente.")
+        elif type_tx == "Dépot €" and prix <= 0:
+            st.error("Prix doit être > 0 pour un dépôt.")
+        elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
+            st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
+        else:
+            # Charger historique
+            df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
+            
+            # ✅ S'assurer que la colonne "Profil" existe
             if "Profil" not in df_hist.columns:
-                df_hist["Profil"] = "Gas"
+                df_hist["Profil"] = "Gas"  # valeur par défaut pour les anciennes transactions
 
-            df_pos = df_hist[(df_hist["Ticker"] == ticker) & (df_hist["Profil"] == profil)]
-            qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
-            if qty_pos < quantite:
-                st.error("❌ Pas assez de titres pour vendre.")
-                transaction = None
-            else:
-                achats = df_pos[df_pos["Quantité"] > 0]
-                total_qty_achats = achats["Quantité"].sum() if not achats.empty else 0
-                prix_moyen = ((achats["Quantité"] * achats["Prix"]).sum() / total_qty_achats) if total_qty_achats > 0 else 0
-                pnl_real = (prix - prix_moyen) * quantite - frais
-                pnl_pct = ((prix - prix_moyen) / prix_moyen * 100) if prix_moyen != 0 else 0.0
+            # Normaliser date
+            try:
+                date_tx = pd.to_datetime(date_input)
+            except Exception:
+                date_tx = pd.Timestamp.now()
+
+            transaction = None
+            if type_tx == "Dépot €":
                 transaction = {
                     "Profil": profil,
                     "Date": date_tx,
-                    "Type": "Vente",
+                    "Type": "Dépot €",
+                    "Ticker": "CASH",
+                    "Quantité": quantite,
+                    "Prix": 1,
+                    "Frais": round(frais,2),
+                    "PnL réalisé (€/$)": 0.0,
+                    "PnL réalisé (%)": 0.0
+                }
+            elif type_tx == "Achat":
+                transaction = {
+                    "Profil": profil,
+                    "Date": date_tx,
+                    "Type": "Achat",
                     "Ticker": ticker.upper(),
-                    "Quantité": -abs(quantite),
+                    "Quantité": quantite,
                     "Prix": round(prix,2),
                     "Frais": round(frais,2),
-                    "PnL réalisé (€/$)": round(pnl_real,2),
-                    "PnL réalisé (%)": round(pnl_pct,2)
+                    "PnL réalisé (€/$)": 0.0,
+                    "PnL réalisé (%)": 0.0
                 }
+            elif type_tx == "Vente":
+                # ✅ S'assurer que la colonne "Profil" existe dans df_hist
+                if "Profil" not in df_hist.columns:
+                    df_hist["Profil"] = "Gas"
 
-        if transaction:
-            st.session_state.transactions.append(transaction)
-            df_save = pd.DataFrame(st.session_state.transactions)
-            save_transactions(df_save)
-            st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
+                df_pos = df_hist[(df_hist["Ticker"] == ticker) & (df_hist["Profil"] == profil)]
+                qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
+                if qty_pos < quantite:
+                    st.error("❌ Pas assez de titres pour vendre.")
+                    transaction = None
+                else:
+                    achats = df_pos[df_pos["Quantité"] > 0]
+                    total_qty_achats = achats["Quantité"].sum() if not achats.empty else 0
+                    prix_moyen = ((achats["Quantité"] * achats["Prix"]).sum() / total_qty_achats) if total_qty_achats > 0 else 0
+                    pnl_real = (prix - prix_moyen) * quantite - frais
+                    pnl_pct = ((prix - prix_moyen) / prix_moyen * 100) if prix_moyen != 0 else 0.0
+                    transaction = {
+                        "Profil": profil,
+                        "Date": date_tx,
+                        "Type": "Vente",
+                        "Ticker": ticker.upper(),
+                        "Quantité": -abs(quantite),
+                        "Prix": round(prix,2),
+                        "Frais": round(frais,2),
+                        "PnL réalisé (€/$)": round(pnl_real,2),
+                        "PnL réalisé (%)": round(pnl_pct,2)
+                    }
+
+            if transaction:
+                st.session_state.transactions.append(transaction)
+                df_save = pd.DataFrame(st.session_state.transactions)
+                save_transactions(df_save)
+                st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
     st.subheader("Historique des transactions")
     if st.session_state.transactions:
