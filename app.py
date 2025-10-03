@@ -119,6 +119,9 @@ if "transactions" not in st.session_state:
 # -----------------------
 # Onglets
 # -----------------------
+tab1, tab2 = st.tabs(["💰 Transactions", "📂 Portefeuille"])
+
+# ----------------------- Onglets -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
 # ----------------------- Onglet 1 : Saisie Transactions -----------------------
@@ -329,6 +332,10 @@ with tab3:
     
     for i, p in enumerate(profils):
         df_p = pd.DataFrame(st.session_state.transactions)
+
+# ✅ S'assurer que la colonne "Profil" existe
+        if "Profil" not in df_p.columns:
+            df_p["Profil"] = "Gas"  # valeur par défaut pour les anciennes transactions
         df_p = df_p[df_p["Profil"]==p]
         if df_p.empty:
             cols[i].info(f"Aucune transaction pour {p}")
@@ -381,4 +388,3 @@ with tab3:
         
         if not portefeuille.empty:
             cols[i].dataframe(portefeuille.sort_values(by="Valeur totale",ascending=False).reset_index(drop=True), width='stretch')
-
