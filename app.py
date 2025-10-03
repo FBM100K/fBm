@@ -170,8 +170,8 @@ with tab1:
                     "Date": date_tx,
                     "Type": "Dépot €",
                     "Ticker": "CASH",
-                    "Quantité": 1,
-                    "Prix": round(prix,2),
+                    "Quantité": quantite,
+                    "Prix": 1,
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
