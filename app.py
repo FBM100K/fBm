@@ -12,15 +12,15 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="Dashboard Portefeuille", layout="wide")
 st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM</h1>", unsafe_allow_html=True)
 
-SHEET_NAME = "transactions_dashboard"   # Nom de ta Google Sheet
+SHEET_NAME = "transactions_dashboard"
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+
 creds_info = st.secrets["google_service_account"]
 credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
 client = gspread.authorize(credentials)
 sheet = client.open(SHEET_NAME).sheet1
 
 # ---------- Auth Google Sheets (robuste) ----------
-# Dans Streamlit Cloud : st.secrets["google_service_account"] doit contenir tout l'objet JSON du service account (dict)
 try:
     creds_info = st.secrets["google_service_account"]
     credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
@@ -39,8 +39,6 @@ EXPECTED_COLS = ["Date","Profil","Type","Ticker","Quantité","Prix","PnL réalis
 # -----------------------
 @st.cache_data(ttl=60)
 def fetch_last_close(tickers):
-    """Récupère le dernier cours de clôture par ticker.
-       Utilise yfinance ticker.history en fallback pour plus de robustesse."""
     closes = {}
     if not tickers:
         return closes
@@ -57,6 +55,14 @@ def fetch_last_close(tickers):
             closes[tk] = None
     return closes
 
+def parse_float(val):
+    if val is None or val == "":
+        return 0.0
+    try:
+        return float(str(val).replace(",", "."))
+    except ValueError:
+        return 0.0
+
 def load_transactions():
     if sheet is None:
         return pd.DataFrame(columns=EXPECTED_COLS)
@@ -66,20 +72,12 @@ def load_transactions():
         for c in EXPECTED_COLS:
             if c not in df.columns:
                 df[c] = None
-        # Convert Date column to datetime (keep NaT si invalide)
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
-        # ✅ Conversion sécurisée des colonnes numériques
         num_cols = ["Quantité", "Prix", "Frais (€/$)", "PnL réalisé (€/$)", "PnL réalisé (%)"]
         for col in num_cols:
             if col in df.columns:
-                df[col] = (
-                    df[col]
-                    .astype(str)                     # forcer en string
-                    .str.replace(",", ".", regex=False)  # remplacer virgule par point
-                    .replace("", "0")                # vides → 0
-                    .astype(float)                   # reconvertir en float
-                )
+                df[col] = df[col].astype(str).str.replace(",", ".", regex=False).replace("", "0").astype(float)
 
         return df
     except Exception as e:
@@ -87,12 +85,10 @@ def load_transactions():
         return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_transactions(df):
-    """Ecrit la table entière en une seule opération (plus rapide / moins d'APIs)."""
     if sheet is None:
         st.error("Pas de connexion à Google Sheets : impossible d'enregistrer.")
         return
     try:
-        # Prépare les rows (converts dates en ISO)
         rows = []
         for _, r in df.iterrows():
             row = []
@@ -102,14 +98,15 @@ def save_transactions(df):
                     row.append("")
                 elif isinstance(val, (pd.Timestamp, datetime)):
                     row.append(val.isoformat())
+                elif isinstance(val, (float, int)):
+                    row.append(f"{val:.8f}".rstrip("0").rstrip("."))
                 else:
-                    row.append(val)
+                    row.append(str(val))
             rows.append(row)
-        # Update sheet in bulk
         sheet.clear()
         sheet.append_row(EXPECTED_COLS)
         if rows:
-            sheet.append_rows(rows, value_input_option='USER_ENTERED')
+            sheet.append_rows(rows, value_input_option='RAW')
     except Exception as e:
         st.error(f"Erreur écriture Google Sheet: {e}")
 
@@ -121,14 +118,6 @@ def format_pct(val):
         return f"{sign}{val:.2f}%"
     except Exception:
         return ""
-# Fonction utilitaire pour convertir nombre avec virgule
-def parse_float(val):
-    if val is None or val == "":
-        return 0.0
-    try:
-        return float(str(val).replace(",", "."))
-    except ValueError:
-        return 0.0
 
 # -----------------------
 # State init
@@ -141,16 +130,6 @@ if "transactions" not in st.session_state:
 # Onglets
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
-
-# ----------------------- Onglet 1 : Saisie Transactions -----------------------
-# Fonction utilitaire pour convertir nombre avec virgule
-def parse_float(val):
-    if val is None or val == "":
-        return 0.0
-    try:
-        return float(str(val).replace(",", "."))
-    except ValueError:
-        return 0.0
 
 # ----------------------- Onglet 1 : Saisie Transactions -----------------------
 with tab1:
@@ -180,12 +159,10 @@ with tab1:
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
     if st.button("➕ Ajouter Transaction"):
-        # Conversion propre
         quantite = parse_float(quantite)
         prix = parse_float(prix)
         frais = parse_float(frais)
 
-        # Validation
         if type_tx in ("Achat", "Vente") and (not ticker):
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0:
@@ -193,14 +170,10 @@ with tab1:
         elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
-            # Charger historique
             df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
-            
-            # ✅ S'assurer que la colonne "Profil" existe
             if "Profil" not in df_hist.columns:
-                df_hist["Profil"] = "Gas"  # valeur par défaut pour anciennes transactions
+                df_hist["Profil"] = "Gas"
 
-            # Normaliser date
             try:
                 date_tx = pd.to_datetime(date_input)
             except Exception:
@@ -258,7 +231,6 @@ with tab1:
             if transaction:
                 st.session_state.transactions.append(transaction)
                 df_save = pd.DataFrame(st.session_state.transactions)
-                # ✅ Respect de l'ordre des colonnes
                 for col in EXPECTED_COLS:
                     if col not in df_save.columns:
                         df_save[col] = None
@@ -285,16 +257,14 @@ with tab2:
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
         df_tx = df_tx.sort_values(by="Date")
 
-        # Calcul du cash
         total_depots = df_tx[df_tx["Type"] == "Dépot €"]["Quantité"].sum() if not df_tx[df_tx["Type"] == "Dépot €"].empty else 0.0
         total_achats = (df_tx[df_tx["Type"] == "Achat"]["Quantité"] * df_tx[df_tx["Type"] == "Achat"]["Prix"]).sum() if not df_tx[df_tx["Type"] == "Achat"].empty else 0.0
         ventes = df_tx[df_tx["Type"] == "Vente"]
         total_ventes = ((-ventes["Quantité"]) * ventes["Prix"]).sum() if not ventes.empty else 0.0
-        total_frais = df_tx["Frais"].sum() if "Frais" in df_tx.columns else 0.0
+        total_frais = df_tx["Frais (€/$)"].sum() if "Frais (€/$)" in df_tx.columns else 0.0
 
         cash = total_depots + total_ventes - total_achats - total_frais
 
-        # Calcul des positions
         df_actifs = df_tx[df_tx["Ticker"] != "CASH"]
         portefeuille = pd.DataFrame()
 
@@ -307,19 +277,8 @@ with tab2:
                 prix_moy[tk] = (achats["Quantité"] * achats["Prix"]).sum() / achats["Quantité"].sum() if not achats.empty else 0.0
 
             tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"]==t, "Quantité"].values[0] != 0]
+            closes = fetch_last_close(tickers)
 
-            # ---------------- Fetch latest close
-            closes = {}
-            for tk in tickers:
-                try:
-                    t = yf.Ticker(tk)
-                    hist = t.history(period="30d", interval="1d")
-                    closes[tk] = float(hist['Close'].dropna().iloc[-1]) if not hist.empty else None
-                except Exception:
-                    closes[tk] = None
-                    st.warning(f"Impossible de récupérer le prix pour {tk}")
-
-            # Construction du portefeuille
             rows = []
             for t in tickers:
                 qty = grp.loc[grp["Ticker"]==t, "Quantité"].values[0]
@@ -339,13 +298,11 @@ with tab2:
                 })
             portefeuille = pd.DataFrame(rows)
 
-        # Totaux
         total_valeur_actifs = portefeuille["Valeur totale"].sum() if not portefeuille.empty else 0.0
         total_pnl_latent = portefeuille["PnL latent (€/$)"].sum() if not portefeuille.empty else 0.0
         total_pnl_real = df_tx["PnL réalisé (€/$)"].sum() if not df_tx.empty else 0.0
         total_patrimoine = cash + total_valeur_actifs
 
-        # Affichage métriques
         k1, k2, k3, k4 = st.columns(4)
         pct_cash = (total_valeur_actifs != 0 and cash / total_valeur_actifs * 100 or 0)
         pct_valeur = (total_valeur_actifs != 0 and total_pnl_latent / total_valeur_actifs * 100 or 0)
@@ -359,10 +316,8 @@ with tab2:
 
         st.write(f"Total dépôts : {total_depots:,.2f} € — Total achats : {total_achats:,.2f} € — Total ventes : {total_ventes:,.2f} €")
 
-        # Dataframe et graphiques
         if not portefeuille.empty:
             st.dataframe(portefeuille.sort_values(by="Valeur totale", ascending=False).reset_index(drop=True), width='stretch')
-
             try:
                 fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title="Répartition du portefeuille")
                 st.plotly_chart(fig, width='stretch')
@@ -376,7 +331,6 @@ with tab2:
         else:
             st.info("Aucune position ouverte (hors CASH).")
 
-        # Graphique PnL cumulatif ventes
         df_ventes = df_tx[df_tx["Type"] == "Vente"].copy()
         if not df_ventes.empty:
             df_ventes = df_ventes.sort_values(by="Date")
@@ -384,7 +338,6 @@ with tab2:
             fig3 = px.line(df_ventes, x="Date", y="Cumul PnL réalisé", title="PnL Réalisé Cumulatif")
             st.plotly_chart(fig3, width='stretch')
 
-        # Expander transactions détaillées
         with st.expander("Voir transactions détaillées"):
             st.dataframe(df_tx.reset_index(drop=True), width='stretch')
 
@@ -393,18 +346,16 @@ with tab3:
     st.header("Comparatif portefeuilles individuels")
     profils = ["Gas","Marc"]
     cols = st.columns(len(profils))
-    
+
     for i, p in enumerate(profils):
         df_p = pd.DataFrame(st.session_state.transactions)
-
-# ✅ S'assurer que la colonne "Profil" existe
         if "Profil" not in df_p.columns:
-            df_p["Profil"] = "Gas"  # valeur par défaut pour les anciennes transactions
+            df_p["Profil"] = "Gas"
         df_p = df_p[df_p["Profil"]==p]
         if df_p.empty:
             cols[i].info(f"Aucune transaction pour {p}")
             continue
-        
+
         df_actifs = df_p[df_p["Ticker"] != "CASH"]
         portefeuille = pd.DataFrame()
         if not df_actifs.empty:
@@ -415,8 +366,9 @@ with tab3:
                 achats = df_tk[df_tk["Quantité"] > 0]
                 prix_moy[tk] = (achats["Quantité"]*achats["Prix"]).sum()/achats["Quantité"].sum() if not achats.empty else 0.0
 
-            tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"]==t,"Quantité"].values[0]!=0]
+            tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"]==t,"Quantité"].values[0] != 0]
             closes = fetch_last_close(tickers)
+
             rows = []
             for t in tickers:
                 qty = grp.loc[grp["Ticker"]==t,"Quantité"].values[0]
@@ -435,20 +387,9 @@ with tab3:
                     "PnL latent (%)": round(pnl_pct,2) if pnl_pct is not None else None
                 })
             portefeuille = pd.DataFrame(rows)
-        
+
         total_valeur = portefeuille["Valeur totale"].sum() if not portefeuille.empty else 0.0
-        total_pnl_latent = portefeuille["PnL latent (€/$)"].sum() if not portefeuille.empty else 0.0
-        total_pnl_real = df_p["PnL réalisé (€/$)"].sum() if not df_p.empty else 0.0
-        total_depots = df_p[df_p["Type"]=="Dépot €"]["Quantité"].sum() if not df_p[df_p["Type"]=="Dépot €"].empty else 0.0
-        total_achats = (df_p[df_p["Type"]=="Achat"]["Quantité"]*df_p[df_p["Type"]=="Achat"]["Prix"]).sum() if not df_p[df_p["Type"]=="Achat"].empty else 0.0
-        total_ventes = ((-df_p[df_p["Type"]=="Vente"]["Quantité"])*df_p[df_p["Type"]=="Vente"]["Prix"]).sum() if not df_p[df_p["Type"]=="Vente"].empty else 0.0
-        total_frais = df_p["Frais"].sum() if "Frais" in df_p.columns else 0.0
-        cash = total_depots + total_ventes - total_achats - total_frais
-        
-        cols[i].metric(f"💵 Liquidités {p}", f"{cash:,.2f} €")
-        cols[i].metric(f"📊 Valeur Actifs {p}", f"{total_valeur:,.2f} €")
-        cols[i].metric(f"📈 PnL latent {p}", f"{total_pnl_latent:,.2f} €")
-        cols[i].metric(f"✅ PnL réalisé {p}", f"{total_pnl_real:,.2f} €")
-        
+        cols[i].metric(f"{p} : Valeur portefeuilles", f"{total_valeur:,.2f} €")
         if not portefeuille.empty:
-            cols[i].dataframe(portefeuille.sort_values(by="Valeur totale",ascending=False).reset_index(drop=True), width='stretch')
+            fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title=f"{p} Répartition")
+            cols[i].plotly_chart(fig)
