@@ -68,6 +68,19 @@ def load_transactions():
                 df[c] = None
         # Convert Date column to datetime (keep NaT si invalide)
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+        # ✅ Conversion sécurisée des colonnes numériques
+        num_cols = ["Quantité", "Prix", "Frais (€/$)", "PnL réalisé (€/$)", "PnL réalisé (%)"]
+        for col in num_cols:
+            if col in df.columns:
+                df[col] = (
+                    df[col]
+                    .astype(str)                     # forcer en string
+                    .str.replace(",", ".", regex=False)  # remplacer virgule par point
+                    .replace("", "0")                # vides → 0
+                    .astype(float)                   # reconvertir en float
+                )
+
         return df
     except Exception as e:
         st.error(f"Erreur lecture Google Sheet: {e}")
@@ -186,15 +199,7 @@ with tab1:
             # ✅ S'assurer que la colonne "Profil" existe
             if "Profil" not in df_hist.columns:
                 df_hist["Profil"] = "Gas"  # valeur par défaut pour anciennes transactions
-                num_cols = ["Quantité", "Prix", "Frais", "PnL réalisé (€/$)", "PnL réalisé (%)"]
-                for col in num_cols:
-                    if col in df_hist.columns:
-                        df_hist[col] = (
-                            df_hist[col]
-                            .astype(str)             # convertir en string
-                            .str.replace(",", ".", regex=False)  # remplacer virgule par point
-                            .astype(float)           # reconvertir en float
-                        )
+
             # Normaliser date
             try:
                 date_tx = pd.to_datetime(date_input)
