@@ -148,7 +148,7 @@ with tab1:
     frais = st.number_input("Frais (€/$)", min_value=0.0, step=0.01, format="%.2f", value=0.0)
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
-        if st.button("➕ Ajouter Transaction"):
+    if st.button("➕ Ajouter Transaction"):
         # Validation
         if type_tx in ("Achat", "Vente") and (not ticker):
             st.error("Ticker requis pour Achat/Vente.")
