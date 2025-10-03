@@ -238,6 +238,7 @@ with tab2:
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
         df_tx = df_tx.sort_values(by="Date")
 
+        # Calcul du cash
         total_depots = df_tx[df_tx["Type"] == "Dépot €"]["Quantité"].sum() if not df_tx[df_tx["Type"] == "Dépot €"].empty else 0.0
         total_achats = (df_tx[df_tx["Type"] == "Achat"]["Quantité"] * df_tx[df_tx["Type"] == "Achat"]["Prix"]).sum() if not df_tx[df_tx["Type"] == "Achat"].empty else 0.0
         ventes = df_tx[df_tx["Type"] == "Vente"]
@@ -246,8 +247,10 @@ with tab2:
 
         cash = total_depots + total_ventes - total_achats - total_frais
 
+        # Calcul des positions
         df_actifs = df_tx[df_tx["Ticker"] != "CASH"]
         portefeuille = pd.DataFrame()
+
         if not df_actifs.empty:
             grp = df_actifs.groupby("Ticker", as_index=False).agg({"Quantité": "sum"})
             prix_moy = {}
@@ -257,16 +260,27 @@ with tab2:
                 prix_moy[tk] = (achats["Quantité"] * achats["Prix"]).sum() / achats["Quantité"].sum() if not achats.empty else 0.0
 
             tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"]==t, "Quantité"].values[0] != 0]
-            closes = fetch_last_close(tickers)
 
+            # ---------------- Fetch latest close
+            closes = {}
+            for tk in tickers:
+                try:
+                    t = yf.Ticker(tk)
+                    hist = t.history(period="30d", interval="1d")
+                    closes[tk] = float(hist['Close'].dropna().iloc[-1]) if not hist.empty else None
+                except Exception:
+                    closes[tk] = None
+                    st.warning(f"Impossible de récupérer le prix pour {tk}")
+
+            # Construction du portefeuille
             rows = []
             for t in tickers:
                 qty = grp.loc[grp["Ticker"]==t, "Quantité"].values[0]
                 avg_cost = prix_moy.get(t, 0.0)
                 current = closes.get(t, None)
-                valeur = (current * qty) if (current is not None) else None
-                pnl_abs = ((current - avg_cost) * qty) if (current is not None) else None
-                pnl_pct = ((current - avg_cost)/avg_cost*100) if (avg_cost not in (0, None) and current is not None) else None
+                valeur = (current * qty) if current is not None else None
+                pnl_abs = ((current - avg_cost) * qty) if current is not None else None
+                pnl_pct = ((current - avg_cost)/avg_cost*100) if avg_cost not in (0,None) and current is not None else None
                 rows.append({
                     "Ticker": t,
                     "Quantité nette": qty,
@@ -276,14 +290,15 @@ with tab2:
                     "PnL latent (€/$)": round(pnl_abs,2) if pnl_abs is not None else None,
                     "PnL latent (%)": round(pnl_pct,2) if pnl_pct is not None else None
                 })
-
             portefeuille = pd.DataFrame(rows)
 
+        # Totaux
         total_valeur_actifs = portefeuille["Valeur totale"].sum() if not portefeuille.empty else 0.0
         total_pnl_latent = portefeuille["PnL latent (€/$)"].sum() if not portefeuille.empty else 0.0
         total_pnl_real = df_tx["PnL réalisé (€/$)"].sum() if not df_tx.empty else 0.0
         total_patrimoine = cash + total_valeur_actifs
 
+        # Affichage métriques
         k1, k2, k3, k4 = st.columns(4)
         pct_cash = (total_valeur_actifs != 0 and cash / total_valeur_actifs * 100 or 0)
         pct_valeur = (total_valeur_actifs != 0 and total_pnl_latent / total_valeur_actifs * 100 or 0)
@@ -297,8 +312,10 @@ with tab2:
 
         st.write(f"Total dépôts : {total_depots:,.2f} € — Total achats : {total_achats:,.2f} € — Total ventes : {total_ventes:,.2f} €")
 
+        # Dataframe et graphiques
         if not portefeuille.empty:
             st.dataframe(portefeuille.sort_values(by="Valeur totale", ascending=False).reset_index(drop=True), width='stretch')
+
             try:
                 fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title="Répartition du portefeuille")
                 st.plotly_chart(fig, width='stretch')
@@ -306,11 +323,13 @@ with tab2:
                 st.write("Impossible d'afficher la répartition (données manquantes).")
 
             if portefeuille["PnL latent (€/$)"].notna().any():
-                fig2 = px.bar(portefeuille.dropna(subset=["PnL latent (€/$)"]), x="Ticker", y="PnL latent (€/$)", text="PnL latent (%)", title="PnL latent par ticker")
+                fig2 = px.bar(portefeuille.dropna(subset=["PnL latent (€/$)"]), x="Ticker", y="PnL latent (€/$)",
+                              text="PnL latent (%)", title="PnL latent par ticker")
                 st.plotly_chart(fig2, width='stretch')
         else:
             st.info("Aucune position ouverte (hors CASH).")
 
+        # Graphique PnL cumulatif ventes
         df_ventes = df_tx[df_tx["Type"] == "Vente"].copy()
         if not df_ventes.empty:
             df_ventes = df_ventes.sort_values(by="Date")
@@ -318,9 +337,10 @@ with tab2:
             fig3 = px.line(df_ventes, x="Date", y="Cumul PnL réalisé", title="PnL Réalisé Cumulatif")
             st.plotly_chart(fig3, width='stretch')
 
+        # Expander transactions détaillées
         with st.expander("Voir transactions détaillées"):
             st.dataframe(df_tx.reset_index(drop=True), width='stretch')
-
+            
 # ----------------------- Onglet 3 : Répartition par Profil -----------------------
 with tab3:
     st.header("Comparatif portefeuilles individuels")
@@ -385,4 +405,3 @@ with tab3:
         
         if not portefeuille.empty:
             cols[i].dataframe(portefeuille.sort_values(by="Valeur totale",ascending=False).reset_index(drop=True), width='stretch')
-
