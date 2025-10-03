@@ -194,7 +194,7 @@ with tab1:
                             .astype(str)             # convertir en string
                             .str.replace(",", ".", regex=False)  # remplacer virgule par point
                             .astype(float)           # reconvertir en float
-
+                        )
             # Normaliser date
             try:
                 date_tx = pd.to_datetime(date_input)
