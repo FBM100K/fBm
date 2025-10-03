@@ -119,9 +119,6 @@ if "transactions" not in st.session_state:
 # -----------------------
 # Onglets
 # -----------------------
-tab1, tab2 = st.tabs(["💰 Transactions", "📂 Portefeuille"])
-
-# ----------------------- Onglets -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
 # ----------------------- Onglet 1 : Saisie Transactions -----------------------
@@ -388,3 +385,4 @@ with tab3:
         
         if not portefeuille.empty:
             cols[i].dataframe(portefeuille.sort_values(by="Valeur totale",ascending=False).reset_index(drop=True), width='stretch')
+
