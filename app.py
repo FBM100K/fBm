@@ -13,8 +13,11 @@ st.set_page_config(page_title="Dashboard Portefeuille", layout="wide")
 st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM</h1>", unsafe_allow_html=True)
 
 SHEET_NAME = "transactions_dashboard"   # Nom de ta Google Sheet
-SCOPE = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds_info = st.secrets["google_service_account"]
+credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
+client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME).sheet1
 
 # ---------- Auth Google Sheets (robuste) ----------
 # Dans Streamlit Cloud : st.secrets["google_service_account"] doit contenir tout l'objet JSON du service account (dict)
