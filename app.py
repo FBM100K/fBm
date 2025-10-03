@@ -121,12 +121,14 @@ if "transactions" not in st.session_state:
 # -----------------------
 tab1, tab2 = st.tabs(["💰 Transactions", "📂 Portefeuille"])
 
-# -----------------------
-# Onglet 1 : Saisie Transactions
-# -----------------------
+# ----------------------- Onglets -----------------------
+tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
+
+# ----------------------- Onglet 1 : Saisie Transactions -----------------------
 with tab1:
     st.header("Ajouter une transaction")
 
+    profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
     tickers_existants = sorted(set([tx.get("Ticker") for tx in st.session_state.transactions if tx.get("Ticker") and tx.get("Ticker") != "CASH"]))
@@ -168,6 +170,7 @@ with tab1:
             transaction = None
             if type_tx == "Dépot €":
                 transaction = {
+                    "Profil": profil,
                     "Date": date_tx,
                     "Type": "Dépot €",
                     "Ticker": "CASH",
@@ -179,6 +182,7 @@ with tab1:
                 }
             elif type_tx == "Achat":
                 transaction = {
+                    "Profil": profil,
                     "Date": date_tx,
                     "Type": "Achat",
                     "Ticker": ticker.upper(),
@@ -189,7 +193,7 @@ with tab1:
                     "PnL réalisé (%)": 0.0
                 }
             elif type_tx == "Vente":
-                df_pos = df_hist[df_hist["Ticker"] == ticker]
+                df_pos = df_hist[(df_hist["Ticker"] == ticker) & (df_hist["Profil"]==profil)]
                 qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
                 if qty_pos < quantite:
                     st.error("❌ Pas assez de titres pour vendre.")
@@ -201,6 +205,7 @@ with tab1:
                     pnl_real = (prix - prix_moyen) * quantite - frais
                     pnl_pct = ((prix - prix_moyen) / prix_moyen * 100) if prix_moyen != 0 else 0.0
                     transaction = {
+                        "Profil": profil,
                         "Date": date_tx,
                         "Type": "Vente",
                         "Ticker": ticker.upper(),
@@ -221,13 +226,11 @@ with tab1:
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
-        st.dataframe(df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200), use_container_width=True)
+        st.dataframe(df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200), width='stretch')
     else:
         st.info("Aucune transaction enregistrée.")
 
-# -----------------------
-# Onglet 2 : Portefeuille consolidé
-# -----------------------
+# ----------------------- Onglet 2 : Portefeuille consolidé -----------------------
 with tab2:
     st.header("Portefeuille consolidé")
 
@@ -238,7 +241,7 @@ with tab2:
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
         df_tx = df_tx.sort_values(by="Date")
 
-        total_depots = df_tx[df_tx["Type"] == "Dépot €"]["Prix"].sum() if not df_tx[df_tx["Type"] == "Dépot €"].empty else 0.0
+        total_depots = df_tx[df_tx["Type"] == "Dépot €"]["Quantité"].sum() if not df_tx[df_tx["Type"] == "Dépot €"].empty else 0.0
         total_achats = (df_tx[df_tx["Type"] == "Achat"]["Quantité"] * df_tx[df_tx["Type"] == "Achat"]["Prix"]).sum() if not df_tx[df_tx["Type"] == "Achat"].empty else 0.0
         ventes = df_tx[df_tx["Type"] == "Vente"]
         total_ventes = ((-ventes["Quantité"]) * ventes["Prix"]).sum() if not ventes.empty else 0.0
@@ -298,16 +301,16 @@ with tab2:
         st.write(f"Total dépôts : {total_depots:,.2f} € — Total achats : {total_achats:,.2f} € — Total ventes : {total_ventes:,.2f} €")
 
         if not portefeuille.empty:
-            st.dataframe(portefeuille.sort_values(by="Valeur totale", ascending=False).reset_index(drop=True), use_container_width=True)
+            st.dataframe(portefeuille.sort_values(by="Valeur totale", ascending=False).reset_index(drop=True), width='stretch')
             try:
                 fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title="Répartition du portefeuille")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             except Exception:
                 st.write("Impossible d'afficher la répartition (données manquantes).")
 
             if portefeuille["PnL latent (€/$)"].notna().any():
                 fig2 = px.bar(portefeuille.dropna(subset=["PnL latent (€/$)"]), x="Ticker", y="PnL latent (€/$)", text="PnL latent (%)", title="PnL latent par ticker")
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width='stretch')
         else:
             st.info("Aucune position ouverte (hors CASH).")
 
@@ -316,8 +319,68 @@ with tab2:
             df_ventes = df_ventes.sort_values(by="Date")
             df_ventes["Cumul PnL réalisé"] = df_ventes["PnL réalisé (€/$)"].cumsum()
             fig3 = px.line(df_ventes, x="Date", y="Cumul PnL réalisé", title="PnL Réalisé Cumulatif")
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width='stretch')
 
         with st.expander("Voir transactions détaillées"):
-            st.dataframe(df_tx.reset_index(drop=True), use_container_width=True)
+            st.dataframe(df_tx.reset_index(drop=True), width='stretch')
 
+# ----------------------- Onglet 3 : Répartition par Profil -----------------------
+with tab3:
+    st.header("Comparatif portefeuilles individuels")
+    profils = ["Gas","Marc"]
+    cols = st.columns(len(profils))
+    
+    for i, p in enumerate(profils):
+        df_p = pd.DataFrame(st.session_state.transactions)
+        df_p = df_p[df_p["Profil"]==p]
+        if df_p.empty:
+            cols[i].info(f"Aucune transaction pour {p}")
+            continue
+        
+        df_actifs = df_p[df_p["Ticker"] != "CASH"]
+        portefeuille = pd.DataFrame()
+        if not df_actifs.empty:
+            grp = df_actifs.groupby("Ticker", as_index=False).agg({"Quantité":"sum"})
+            prix_moy = {}
+            for tk in grp["Ticker"]:
+                df_tk = df_actifs[df_actifs["Ticker"]==tk]
+                achats = df_tk[df_tk["Quantité"] > 0]
+                prix_moy[tk] = (achats["Quantité"]*achats["Prix"]).sum()/achats["Quantité"].sum() if not achats.empty else 0.0
+
+            tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"]==t,"Quantité"].values[0]!=0]
+            closes = fetch_last_close(tickers)
+            rows = []
+            for t in tickers:
+                qty = grp.loc[grp["Ticker"]==t,"Quantité"].values[0]
+                avg_cost = prix_moy.get(t,0.0)
+                current = closes.get(t,None)
+                valeur = (current*qty) if current is not None else None
+                pnl_abs = ((current-avg_cost)*qty) if current is not None else None
+                pnl_pct = ((current-avg_cost)/avg_cost*100) if avg_cost not in (0,None) and current is not None else None
+                rows.append({
+                    "Ticker": t,
+                    "Quantité nette": qty,
+                    "Prix moyen pondéré": round(avg_cost,2),
+                    "Prix actuel": round(current,2) if current is not None else None,
+                    "Valeur totale": round(valeur,2) if valeur is not None else None,
+                    "PnL latent (€/$)": round(pnl_abs,2) if pnl_abs is not None else None,
+                    "PnL latent (%)": round(pnl_pct,2) if pnl_pct is not None else None
+                })
+            portefeuille = pd.DataFrame(rows)
+        
+        total_valeur = portefeuille["Valeur totale"].sum() if not portefeuille.empty else 0.0
+        total_pnl_latent = portefeuille["PnL latent (€/$)"].sum() if not portefeuille.empty else 0.0
+        total_pnl_real = df_p["PnL réalisé (€/$)"].sum() if not df_p.empty else 0.0
+        total_depots = df_p[df_p["Type"]=="Dépot €"]["Quantité"].sum() if not df_p[df_p["Type"]=="Dépot €"].empty else 0.0
+        total_achats = (df_p[df_p["Type"]=="Achat"]["Quantité"]*df_p[df_p["Type"]=="Achat"]["Prix"]).sum() if not df_p[df_p["Type"]=="Achat"].empty else 0.0
+        total_ventes = ((-df_p[df_p["Type"]=="Vente"]["Quantité"])*df_p[df_p["Type"]=="Vente"]["Prix"]).sum() if not df_p[df_p["Type"]=="Vente"].empty else 0.0
+        total_frais = df_p["Frais"].sum() if "Frais" in df_p.columns else 0.0
+        cash = total_depots + total_ventes - total_achats - total_frais
+        
+        cols[i].metric(f"💵 Liquidités {p}", f"{cash:,.2f} €")
+        cols[i].metric(f"📊 Valeur Actifs {p}", f"{total_valeur:,.2f} €")
+        cols[i].metric(f"📈 PnL latent {p}", f"{total_pnl_latent:,.2f} €")
+        cols[i].metric(f"✅ PnL réalisé {p}", f"{total_pnl_real:,.2f} €")
+        
+        if not portefeuille.empty:
+            cols[i].dataframe(portefeuille.sort_values(by="Valeur totale",ascending=False).reset_index(drop=True), width='stretch')
