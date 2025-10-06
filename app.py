@@ -144,7 +144,7 @@ if "transactions" not in st.session_state:
 # -----------------------
 # Onglets
 # -----------------------
-tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition", "Calendrier"])
+tab1, tab2, tab3, tab4 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition", "Calendrier"])
 
 # ----------------------- Onglet 1 : Saisie Transactions avec recherche Alpha Vantage -----------------------
 with tab1:
@@ -463,3 +463,4 @@ with tab3:
         if not portefeuille.empty:
             fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title=f"{p} Répartition")
             cols[i].plotly_chart(fig)
+
