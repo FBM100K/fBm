@@ -153,7 +153,7 @@ with tab1:
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-    st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
+    st.markdown("Recherche de titre (Ticker ou Nom d’entreprise)")
 
     # ---- Initialisation variables session ----
     if "ticker_query" not in st.session_state:
@@ -164,7 +164,6 @@ with tab1:
         st.session_state.ticker_selected = ""
 
     # ---- API Alpha Vantage ----
-    import requests
     ALPHA_VANTAGE_API_KEY = st.secrets["alpha_vantage"]["api_key"]
 
     def get_alpha_vantage_suggestions(query: str):
@@ -463,4 +462,3 @@ with tab3:
         if not portefeuille.empty:
             fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title=f"{p} Répartition")
             cols[i].plotly_chart(fig)
-
