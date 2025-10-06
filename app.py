@@ -156,7 +156,7 @@ with tab1:
 
     st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
 
-    # Session vars pour autocomplete
+    # Initialisation variables session
     if "ticker_query" not in st.session_state:
         st.session_state.ticker_query = ""
     if "ticker_suggestions" not in st.session_state:
@@ -165,9 +165,6 @@ with tab1:
         st.session_state.ticker_selected = ""
 
     def get_yf_suggestions(query: str):
-        """Récupère les tickers correspondant à la recherche.
-        yfinance propose `yf.search` dans certaines versions ; en cas d'échec on renvoie [].
-        """
         try:
             res = yf.search(query)
             if not res or "quotes" not in res:
@@ -183,7 +180,9 @@ with tab1:
         except Exception:
             return []
 
-    # Autocomplete React via streamlit-elements
+    # Autocomplete Streamlit Elements
+    from streamlit_elements import elements, mui
+
     with elements("ticker_autocomplete"):
         def on_input_change(event, value):
             st.session_state.ticker_query = value or ""
@@ -202,33 +201,36 @@ with tab1:
             onInputChange=on_input_change,
             renderInput=lambda params: mui.TextField(
                 **params,
-                label="Rechercher un titre (ex : AAPL, TSLA, FP.PA)",
+                label="Rechercher un ticker (ex : AAPL, TSLA, TOT)",
                 variant="outlined",
                 fullWidth=True
             ),
             sx={"width": "100%"},
+            disablePortal=True
         )
 
+    # Feedback sélection
     if st.session_state.ticker_selected:
         st.success(f"✅ Ticker sélectionné : {st.session_state.ticker_selected}")
+
     ticker_selected = st.session_state.ticker_selected or None
 
     # Saisie transaction
-    quantite_input = st.text_input("Quantité (pour Achat/Vente) ou laisser 0 pour Dépot", "0")
-    prix_input = st.text_input("Prix (€/$) — pour dépôt saisir le montant du dépôt ici", "0")
-    frais_input = st.text_input("Frais (€/$)", "0")
+    quantite = st.text_input("Quantité", "0")
+    prix = st.text_input("Prix (€/$)", "0")
+    frais = st.text_input("Frais (€/$)", "0")
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
     if st.button("➕ Ajouter Transaction"):
-        quantite = parse_float(quantite_input)
-        prix = parse_float(prix_input)
-        frais = parse_float(frais_input)
+        quantite = parse_float(quantite)
+        prix = parse_float(prix)
+        frais = parse_float(frais)
 
-        # Validation
+        # Validation basique
         if type_tx in ("Achat", "Vente") and not ticker_selected:
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0:
-            st.error("Montant du dépôt doit être > 0.")
+            st.error("Prix doit être > 0 pour un dépôt.")
         elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
@@ -245,15 +247,14 @@ with tab1:
             transaction = None
 
             if type_tx == "Dépot €":
-                # On considère `prix` comme le montant du dépôt
                 transaction = {
                     "Profil": profil,
                     "Date": date_tx,
                     "Type": "Dépot €",
                     "Ticker": "CASH",
-                    "Quantité": round(prix, 2),  # montant en €
-                    "Prix": 1.0,
-                    "Frais (€/$)": round(frais, 2),
+                    "Quantité": quantite,
+                    "Prix": 1,
+                    "Frais (€/$)": round(frais,2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -263,9 +264,9 @@ with tab1:
                     "Date": date_tx,
                     "Type": "Achat",
                     "Ticker": ticker,
-                    "Quantité": round(quantite, 8),
-                    "Prix": round(prix, 8),
-                    "Frais (€/$)": round(frais, 8),
+                    "Quantité": quantite,
+                    "Prix": round(prix,2),
+                    "Frais (€/$)": round(frais,2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -286,10 +287,10 @@ with tab1:
                         "Type": "Vente",
                         "Ticker": ticker,
                         "Quantité": -abs(quantite),
-                        "Prix": round(prix, 8),
-                        "Frais (€/$)": round(frais, 8),
-                        "PnL réalisé (€/$)": round(pnl_real, 2),
-                        "PnL réalisé (%)": round(pnl_pct, 2)
+                        "Prix": round(prix,2),
+                        "Frais (€/$)": round(frais,2),
+                        "PnL réalisé (€/$)": round(pnl_real,2),
+                        "PnL réalisé (%)": round(pnl_pct,2)
                     }
 
             if transaction:
@@ -303,14 +304,11 @@ with tab1:
                 st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
     # Historique
-    st.subheader("Historique des transactions (dernier 200)")
+    st.subheader("Historique des transactions")
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
         st.dataframe(df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200), width='stretch')
-        # Export CSV
-        csv = df_tx.to_csv(index=False)
-        st.download_button("⬇️ Export CSV", data=csv, file_name="transactions.csv", mime="text/csv")
     else:
         st.info("Aucune transaction enregistrée.")
 
