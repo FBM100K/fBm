@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 from google.oauth2.service_account import Credentials
+from streamlit_elements import elements, mui
 
 # -----------------------
 # Config
@@ -138,48 +139,63 @@ with tab1:
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-    # ---------------- TYPEAHEAD TICKERS ----------------
-    import requests
+   # ---------------- TYPEAHEAD TICKERS (version avancée Yahoo Finance) ----------------
+    st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
 
-    @st.cache_data(ttl=24*3600)
-    def load_all_tickers():
-        """
-        Charge une liste étendue de tickers US et internationaux depuis Yahoo Finance.
-        Retourne un dict {ticker: nom}
-        """
-        tickers = {}
+    # Initialiser les variables dans la session
+    if "ticker_query" not in st.session_state:
+        st.session_state.ticker_query = ""
+    if "ticker_suggestions" not in st.session_state:
+        st.session_state.ticker_suggestions = []
+    if "ticker_selected" not in st.session_state:
+        st.session_state.ticker_selected = ""
 
-        # Exemple: US most actives
-        urls = [
-            "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=most_actives",
-            "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=gainers",
-            "https://query1.finance.yahoo.com/v7/finance/screener/predefined/saved?count=1000&scrIds=losers",
-        ]
+    def get_yf_suggestions(query):
+        """Interroge Yahoo Finance pour récupérer les tickers correspondants"""
+        try:
+            data = yf.search(query)
+            if not data or "quotes" not in data:
+                return []
+            results = []
+            for res in data["quotes"]:
+                symbol = res.get("symbol")
+                name = res.get("shortname", res.get("longname", ""))
+                exch = res.get("exchange", "")
+                if symbol and name:
+                    results.append(f"{symbol} — {name} ({exch})")
+            return results[:15]
+        except Exception:
+            return []
 
-        for url in urls:
-            try:
-                r = requests.get(url)
-                data = r.json()
-                for quote in data['finance']['result'][0]['quotes']:
-                    symbol = quote.get('symbol')
-                    name = quote.get('shortName', "")
-                    if symbol and name:
-                        tickers[symbol] = name
-            except Exception:
-                pass
+    # Composant interactif React pour autocomplétion
+    with elements("autocomplete_tickers"):
+        def on_change(event, value):
+            st.session_state.ticker_query = value or ""
+            if len(st.session_state.ticker_query) >= 2:
+                st.session_state.ticker_suggestions = get_yf_suggestions(st.session_state.ticker_query)
+            else:
+                st.session_state.ticker_suggestions = []
 
-        # Ajouter manuellement CASH / Dépot
-        tickers["CASH"] = "Cash / Dépot"
-        return tickers
+        def on_select(event, value):
+            st.session_state.ticker_selected = value.split(" — ")[0] if value else ""
 
-    tickers_dict = load_all_tickers()
-    tickers_list = [f"{s} - {n}" for s, n in tickers_dict.items()]
+        mui.Autocomplete(
+            options=st.session_state.ticker_suggestions,
+            value=st.session_state.ticker_selected,
+            onChange=on_select,
+            onInputChange=on_change,
+            renderInput=lambda params: mui.TextField(
+                **params,
+                label="Rechercher un titre (ex : AAPL, Tesla, TotalEnergies)",
+                variant="outlined",
+                fullWidth=True
+            ),
+            sx={"width": "100%"},
+        )
 
-    # Champ texte pour recherche
-    ticker_search = st.text_input("Ticker / Nom (ex: AAPL ou Apple)").strip().upper()
-
-    # Filtrer en live les tickers (typeahead)
-    suggestions = [t for t in tickers_list if ticker_search in t.upper()][:20] if ticker_search else []
+    if st.session_state.ticker_selected:
+        st.success(f"✅ Ticker sélectionné : {st.session_state.ticker_selected}")
+    ticker_selected = st.session_state.ticker_selected
 
     ticker_selected = None
     if suggestions:
