@@ -273,7 +273,7 @@ with tab1:
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"], index=0)
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €", "Dividende", "Frais"], index=0)
 
-    st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
+    st.markdown("Recherche de titre (Ticker ou Nom d’entreprise)")
 
     # ---- Initialisation variables session ----
     if "ticker_query" not in st.session_state:
