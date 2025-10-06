@@ -571,7 +571,7 @@ with tab3:
 
         # ---- Calcul Liquidité ----
         df_cash = df_p[df_p["Ticker"].str.upper() == "CASH"]
-        liquidite = df_cash["Montant_total"].sum() if not df_cash.empty else 0.0
+        liquidite = df_cash["Quantité"].sum() if not df_cash.empty else 0.0
 
         # ---- Calcul PnL réalisé ----
         df_ventes = df_p[(df_p["Type"] == "Vente") & (df_p["Quantité"] < 0)]
