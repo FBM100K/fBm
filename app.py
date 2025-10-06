@@ -3,7 +3,7 @@ import gspread
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, date
 from google.oauth2.service_account import Credentials
 from streamlit_elements import elements, mui
 
@@ -16,12 +16,11 @@ st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Porte
 SHEET_NAME = "transactions_dashboard"
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-creds_info = st.secrets["google_service_account"]
-credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
-client = gspread.authorize(credentials)
-sheet = client.open(SHEET_NAME).sheet1
-
-# ---------- Auth Google Sheets (robuste) ----------
+# -----------------------
+# Google Sheets Auth (robuste)
+# -----------------------
+creds_info = None
+sheet = None
 try:
     creds_info = st.secrets["google_service_account"]
     credentials = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
@@ -70,15 +69,19 @@ def load_transactions():
     try:
         records = sheet.get_all_records()
         df = pd.DataFrame(records)
+        # Ensure expected cols exist
         for c in EXPECTED_COLS:
             if c not in df.columns:
                 df[c] = None
+
+        # Parse dates (Google Sheets may store as datetime or string)
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 
+        # Normalize numeric columns
         num_cols = ["Quantité", "Prix", "Frais (€/$)", "PnL réalisé (€/$)", "PnL réalisé (%)"]
         for col in num_cols:
             if col in df.columns:
-                df[col] = df[col].astype(str).str.replace(",", ".", regex=False).replace("", "0").astype(float)
+                df[col] = df[col].astype(str).str.replace(",", ".", regex=False).replace(["", "None", "nan"], "0").astype(float)
 
         return df
     except Exception as e:
@@ -86,28 +89,38 @@ def load_transactions():
         return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_transactions(df):
+    """
+    Sauvegarde en Google Sheet.
+    On écrit les dates en ISO (YYYY-MM-DD) et on utilise value_input_option='USER_ENTERED'
+    pour que Google Sheets les interprète comme dates (cell format date).
+    """
     if sheet is None:
         st.error("Pas de connexion à Google Sheets : impossible d'enregistrer.")
         return
     try:
+        # Prepare rows with header
         rows = []
         for _, r in df.iterrows():
             row = []
             for c in EXPECTED_COLS:
                 val = r.get(c, "")
-                if pd.isna(val):
+                if pd.isna(val) or val is None:
                     row.append("")
-                elif isinstance(val, (pd.Timestamp, datetime)):
-                    row.append(val.isoformat())
+                elif isinstance(val, (pd.Timestamp, datetime, date)):
+                    # Write ISO date (Sheets will convert with USER_ENTERED)
+                    row.append(val.strftime("%Y-%m-%d"))
                 elif isinstance(val, (float, int)):
-                    row.append(f"{val:.8f}".rstrip("0").rstrip("."))
+                    # Write numeric as plain string (USER_ENTERED will parse floats)
+                    row.append(str(val))
                 else:
                     row.append(str(val))
             rows.append(row)
+
+        # Clear and write (header + rows) using USER_ENTERED so dates become date cells
         sheet.clear()
-        sheet.append_row(EXPECTED_COLS)
+        sheet.append_row(EXPECTED_COLS, value_input_option='USER_ENTERED')
         if rows:
-            sheet.append_rows(rows, value_input_option='RAW')
+            sheet.append_rows(rows, value_input_option='USER_ENTERED')
     except Exception as e:
         st.error(f"Erreur écriture Google Sheet: {e}")
 
@@ -132,19 +145,18 @@ if "transactions" not in st.session_state:
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
-# ----------------------- Onglet 1 : Saisie Transactions avec Typeahead Yahoo Finance -----------------------
+# -----------------------
+# Onglet 1 : Saisie Transactions avec Typeahead Yahoo Finance
+# -----------------------
 with tab1:
     st.header("Ajouter une transaction")
 
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-    # ---------------- TYPEAHEAD TICKERS (Streamlit Elements + Yahoo Finance) ----------------
     st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
 
-    from streamlit_elements import elements, mui, html
-
-    # Initialisation des variables de session
+    # Session vars pour autocomplete
     if "ticker_query" not in st.session_state:
         st.session_state.ticker_query = ""
     if "ticker_suggestions" not in st.session_state:
@@ -153,7 +165,9 @@ with tab1:
         st.session_state.ticker_selected = ""
 
     def get_yf_suggestions(query: str):
-        """Récupère les tickers correspondant à une recherche Yahoo Finance"""
+        """Récupère les tickers correspondant à la recherche.
+        yfinance propose `yf.search` dans certaines versions ; en cas d'échec on renvoie [].
+        """
         try:
             res = yf.search(query)
             if not res or "quotes" not in res:
@@ -169,7 +183,7 @@ with tab1:
         except Exception:
             return []
 
-    # ---------------- Autocomplete React (via Streamlit Elements) ----------------
+    # Autocomplete React via streamlit-elements
     with elements("ticker_autocomplete"):
         def on_input_change(event, value):
             st.session_state.ticker_query = value or ""
@@ -188,34 +202,33 @@ with tab1:
             onInputChange=on_input_change,
             renderInput=lambda params: mui.TextField(
                 **params,
-                label="Rechercher un titre (ex : AAPL, Tesla, TotalEnergies)",
+                label="Rechercher un titre (ex : AAPL, TSLA, FP.PA)",
                 variant="outlined",
                 fullWidth=True
             ),
             sx={"width": "100%"},
         )
 
-    # Feedback sur la sélection
     if st.session_state.ticker_selected:
         st.success(f"✅ Ticker sélectionné : {st.session_state.ticker_selected}")
     ticker_selected = st.session_state.ticker_selected or None
 
-    # ---------------- Saisie transaction ----------------
-    quantite = st.text_input("Quantité", "0")
-    prix = st.text_input("Prix (€/$)", "0")
-    frais = st.text_input("Frais (€/$)", "0")
+    # Saisie transaction
+    quantite_input = st.text_input("Quantité (pour Achat/Vente) ou laisser 0 pour Dépot", "0")
+    prix_input = st.text_input("Prix (€/$) — pour dépôt saisir le montant du dépôt ici", "0")
+    frais_input = st.text_input("Frais (€/$)", "0")
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
     if st.button("➕ Ajouter Transaction"):
-        quantite = parse_float(quantite)
-        prix = parse_float(prix)
-        frais = parse_float(frais)
+        quantite = parse_float(quantite_input)
+        prix = parse_float(prix_input)
+        frais = parse_float(frais_input)
 
-        # Validation basique
+        # Validation
         if type_tx in ("Achat", "Vente") and not ticker_selected:
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0:
-            st.error("Prix doit être > 0 pour un dépôt.")
+            st.error("Montant du dépôt doit être > 0.")
         elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
@@ -232,14 +245,15 @@ with tab1:
             transaction = None
 
             if type_tx == "Dépot €":
+                # On considère `prix` comme le montant du dépôt
                 transaction = {
                     "Profil": profil,
                     "Date": date_tx,
                     "Type": "Dépot €",
                     "Ticker": "CASH",
-                    "Quantité": quantite,
-                    "Prix": 1,
-                    "Frais (€/$)": round(frais,2),
+                    "Quantité": round(prix, 2),  # montant en €
+                    "Prix": 1.0,
+                    "Frais (€/$)": round(frais, 2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -249,9 +263,9 @@ with tab1:
                     "Date": date_tx,
                     "Type": "Achat",
                     "Ticker": ticker,
-                    "Quantité": quantite,
-                    "Prix": round(prix,2),
-                    "Frais (€/$)": round(frais,2),
+                    "Quantité": round(quantite, 8),
+                    "Prix": round(prix, 8),
+                    "Frais (€/$)": round(frais, 8),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -272,10 +286,10 @@ with tab1:
                         "Type": "Vente",
                         "Ticker": ticker,
                         "Quantité": -abs(quantite),
-                        "Prix": round(prix,2),
-                        "Frais (€/$)": round(frais,2),
-                        "PnL réalisé (€/$)": round(pnl_real,2),
-                        "PnL réalisé (%)": round(pnl_pct,2)
+                        "Prix": round(prix, 8),
+                        "Frais (€/$)": round(frais, 8),
+                        "PnL réalisé (€/$)": round(pnl_real, 2),
+                        "PnL réalisé (%)": round(pnl_pct, 2)
                     }
 
             if transaction:
@@ -288,12 +302,15 @@ with tab1:
                 save_transactions(df_save)
                 st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
-    # ---------------- Historique ----------------
-    st.subheader("Historique des transactions")
+    # Historique
+    st.subheader("Historique des transactions (dernier 200)")
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
         st.dataframe(df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200), width='stretch')
+        # Export CSV
+        csv = df_tx.to_csv(index=False)
+        st.download_button("⬇️ Export CSV", data=csv, file_name="transactions.csv", mime="text/csv")
     else:
         st.info("Aucune transaction enregistrée.")
 
@@ -308,6 +325,7 @@ with tab2:
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
         df_tx = df_tx.sort_values(by="Date")
 
+        # Calculs cash / achats / ventes
         total_depots = df_tx[df_tx["Type"] == "Dépot €"]["Quantité"].sum() if not df_tx[df_tx["Type"] == "Dépot €"].empty else 0.0
         total_achats = (df_tx[df_tx["Type"] == "Achat"]["Quantité"] * df_tx[df_tx["Type"] == "Achat"]["Prix"]).sum() if not df_tx[df_tx["Type"] == "Achat"].empty else 0.0
         ventes = df_tx[df_tx["Type"] == "Vente"]
@@ -337,15 +355,15 @@ with tab2:
                 current = closes.get(t, None)
                 valeur = (current * qty) if current is not None else None
                 pnl_abs = ((current - avg_cost) * qty) if current is not None else None
-                pnl_pct = ((current - avg_cost)/avg_cost*100) if avg_cost not in (0,None) and current is not None else None
+                pnl_pct = ((current - avg_cost) / avg_cost * 100) if avg_cost not in (0, None) and current is not None and avg_cost != 0 else None
                 rows.append({
                     "Ticker": t,
                     "Quantité nette": qty,
-                    "Prix moyen pondéré": round(avg_cost,2),
-                    "Prix actuel": round(current,2) if current is not None else None,
-                    "Valeur totale": round(valeur,2) if valeur is not None else None,
-                    "PnL latent (€/$)": round(pnl_abs,2) if pnl_abs is not None else None,
-                    "PnL latent (%)": round(pnl_pct,2) if pnl_pct is not None else None
+                    "Prix moyen pondéré": round(avg_cost, 2) if avg_cost is not None else None,
+                    "Prix actuel": round(current, 2) if current is not None else None,
+                    "Valeur totale": round(valeur, 2) if valeur is not None else None,
+                    "PnL latent (€/$)": round(pnl_abs, 2) if pnl_abs is not None else None,
+                    "PnL latent (%)": round(pnl_pct, 2) if pnl_pct is not None else None
                 })
             portefeuille = pd.DataFrame(rows)
 
@@ -365,20 +383,20 @@ with tab2:
         k3.metric("📈 PnL Latent", f"{total_pnl_latent:,.2f} €", delta=f"{pct_pnl_latent:.2f}%")
         k4.metric("✅ PnL Réalisé Total", f"{total_pnl_real:,.2f} €", delta=f"{pct_pnl_real:.2f}%")
 
-        st.write(f"Total dépôts : {total_depots:,.2f} € — Total achats : {total_achats:,.2f} € — Total ventes : {total_ventes:,.2f} €")
+        st.write(f"Total dépôts : {total_depots:,.2f} € — Total achats : {total_achats:,.2f} € — Total ventes : {total_ventes:,.2f} € — Frais : {total_frais:,.2f} €")
 
         if not portefeuille.empty:
             st.dataframe(portefeuille.sort_values(by="Valeur totale", ascending=False).reset_index(drop=True), width='stretch')
             try:
                 fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title="Répartition du portefeuille")
-                st.plotly_chart(fig, width='stretch')
+                st.plotly_chart(fig, use_container_width=True)
             except Exception:
                 st.write("Impossible d'afficher la répartition (données manquantes).")
 
             if portefeuille["PnL latent (€/$)"].notna().any():
                 fig2 = px.bar(portefeuille.dropna(subset=["PnL latent (€/$)"]), x="Ticker", y="PnL latent (€/$)",
                               text="PnL latent (%)", title="PnL latent par ticker")
-                st.plotly_chart(fig2, width='stretch')
+                st.plotly_chart(fig2, use_container_width=True)
         else:
             st.info("Aucune position ouverte (hors CASH).")
 
@@ -387,7 +405,7 @@ with tab2:
             df_ventes = df_ventes.sort_values(by="Date")
             df_ventes["Cumul PnL réalisé"] = df_ventes["PnL réalisé (€/$)"].cumsum()
             fig3 = px.line(df_ventes, x="Date", y="Cumul PnL réalisé", title="PnL Réalisé Cumulatif")
-            st.plotly_chart(fig3, width='stretch')
+            st.plotly_chart(fig3, use_container_width=True)
 
         with st.expander("Voir transactions détaillées"):
             st.dataframe(df_tx.reset_index(drop=True), width='stretch')
@@ -427,7 +445,7 @@ with tab3:
                 current = closes.get(t,None)
                 valeur = (current*qty) if current is not None else None
                 pnl_abs = ((current-avg_cost)*qty) if current is not None else None
-                pnl_pct = ((current-avg_cost)/avg_cost*100) if avg_cost not in (0,None) and current is not None else None
+                pnl_pct = ((current-avg_cost)/avg_cost*100) if avg_cost not in (0,None) and current is not None and avg_cost != 0 else None
                 rows.append({
                     "Ticker": t,
                     "Quantité nette": qty,
