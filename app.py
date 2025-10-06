@@ -144,7 +144,7 @@ if "transactions" not in st.session_state:
 # -----------------------
 # Onglets
 # -----------------------
-tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
+tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition", "Calendrier"])
 
 # ----------------------- Onglet 1 : Saisie Transactions avec recherche Alpha Vantage -----------------------
 with tab1:
@@ -164,6 +164,7 @@ with tab1:
         st.session_state.ticker_selected = ""
 
     # ---- API Alpha Vantage ----
+    import requests
     ALPHA_VANTAGE_API_KEY = st.secrets["alpha_vantage"]["api_key"]
 
     def get_alpha_vantage_suggestions(query: str):
@@ -187,38 +188,26 @@ with tab1:
                 region = m.get("4. region", "")
                 if symbol and name:
                     suggestions.append(f"{symbol} — {name} ({region})")
-                st.write("DEBUG API result:", data)
             return suggestions[:15]
         except Exception as e:
-            st.warning(f"Erreur recherche ticker : {e}")
+            st.warning(f"Erreur API : {e}")
             return []
 
-    # ---- Autocomplete Streamlit Elements ----
-    with elements("ticker_autocomplete"):
-        def on_input_change(event, value):
-            st.session_state.ticker_query = value or ""
-            if len(st.session_state.ticker_query) >= 2:
-                st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(st.session_state.ticker_query)
+    # ---- Interface recherche simple ----
+    query = st.text_input("Entrez un nom ou ticker à rechercher :")
+    if st.button("🔎 Rechercher"):
+        if query:
+            st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(query)
+            if st.session_state.ticker_suggestions:
+                st.session_state.ticker_selected = st.selectbox(
+                    "Résultats trouvés :", 
+                    st.session_state.ticker_suggestions,
+                    key="ticker_selectbox"
+                ).split(" — ")[0]
             else:
-                st.session_state.ticker_suggestions = []
-
-        def on_select(event, value):
-            st.session_state.ticker_selected = value.split(" — ")[0] if value else ""
-
-        mui.Autocomplete(
-            options=st.session_state.ticker_suggestions,
-            value=st.session_state.ticker_selected,
-            onChange=on_select,
-            onInputChange=on_input_change,
-            renderInput=lambda params: mui.TextField(
-                **params,
-                label="Rechercher un ticker (Alpha Vantage)",
-                variant="outlined",
-                fullWidth=True
-            ),
-            sx={"width": "100%"},
-            disablePortal=True
-        )
+                st.warning("Aucun résultat trouvé.")
+        else:
+            st.info("Veuillez saisir un mot-clé pour lancer la recherche.")
 
     # ---- Feedback sélection ----
     if st.session_state.ticker_selected:
@@ -242,7 +231,7 @@ with tab1:
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0:
             st.error("Prix doit être > 0 pour un dépôt.")
-        elif type_tx in ("Achat","Vente") and (quantite <= 0 or prix <= 0):
+        elif type_tx in ("Achat", "Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
             df_hist = pd.DataFrame(st.session_state.transactions) if st.session_state.transactions else pd.DataFrame(columns=EXPECTED_COLS)
@@ -265,7 +254,7 @@ with tab1:
                     "Ticker": "CASH",
                     "Quantité": quantite,
                     "Prix": 1,
-                    "Frais (€/$)": round(frais,2),
+                    "Frais (€/$)": round(frais, 2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -276,8 +265,8 @@ with tab1:
                     "Type": "Achat",
                     "Ticker": ticker,
                     "Quantité": quantite,
-                    "Prix": round(prix,2),
-                    "Frais (€/$)": round(frais,2),
+                    "Prix": round(prix, 2),
+                    "Frais (€/$)": round(frais, 2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -298,10 +287,10 @@ with tab1:
                         "Type": "Vente",
                         "Ticker": ticker,
                         "Quantité": -abs(quantite),
-                        "Prix": round(prix,2),
-                        "Frais (€/$)": round(frais,2),
-                        "PnL réalisé (€/$)": round(pnl_real,2),
-                        "PnL réalisé (%)": round(pnl_pct,2)
+                        "Prix": round(prix, 2),
+                        "Frais (€/$)": round(frais, 2),
+                        "PnL réalisé (€/$)": round(pnl_real, 2),
+                        "PnL réalisé (%)": round(pnl_pct, 2)
                     }
 
             if transaction:
@@ -319,7 +308,10 @@ with tab1:
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
         df_tx["Date"] = pd.to_datetime(df_tx["Date"], errors="coerce")
-        st.dataframe(df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200), width='stretch')
+        st.dataframe(
+            df_tx.sort_values(by="Date", ascending=False).reset_index(drop=True).head(200),
+            width='stretch'
+        )
     else:
         st.info("Aucune transaction enregistrée.")
 
