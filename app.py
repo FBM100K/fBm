@@ -430,7 +430,7 @@ with tab1:
                     st.error("Erreur lors de l'enregistrement. Transaction non sauvegardée.")
 
     # ---- Historique ----
-    st.subheader("Historique des transactions (dernières 200)")
+    st.subheader("Historique des transactions")
     if st.session_state.df_transactions is not None and not st.session_state.df_transactions.empty:
         df_tx = st.session_state.df_transactions.copy()
         # afficher trié
@@ -439,7 +439,7 @@ with tab1:
             df_tx["Date_sort"] = pd.to_datetime(df_tx["Date"], errors="coerce")
             st.dataframe(df_tx.sort_values(by="Date_sort", ascending=False).drop(columns=["Date_sort"]).reset_index(drop=True).head(200), width='stretch')
         else:
-            st.dataframe(df_tx.reset_index(drop=True).head(200), width='stretch')
+            st.dataframe(df_tx.reset_index(drop=True).head(300), width='stretch')
     else:
         st.info("Aucune transaction enregistrée.")
 
@@ -564,48 +564,79 @@ with tab3:
         df_p = st.session_state.df_transactions.copy()
         if "Profil" not in df_p.columns:
             df_p["Profil"] = "Gas"
-        df_p = df_p[df_p["Profil"]==p]
+        df_p = df_p[df_p["Profil"] == p]
         if df_p.empty:
             cols[i].info(f"Aucune transaction pour {p}")
             continue
 
+        # ---- Calcul Liquidité ----
+        df_cash = df_p[df_p["Ticker"].str.upper() == "CASH"]
+        liquidite = df_cash["Montant_total"].sum() if not df_cash.empty else 0.0
+
+        # ---- Calcul PnL réalisé ----
+        df_ventes = df_p[(df_p["Type"] == "Vente") & (df_p["Quantité"] < 0)]
+        pnl_realise_total = 0.0
+        if not df_ventes.empty:
+            for _, v in df_ventes.iterrows():
+                tk = v["Ticker"]
+                qte_vendue = abs(v["Quantité"])
+                df_achats = df_p[(df_p["Ticker"] == tk) & (df_p["Type"] == "Achat") & (df_p["Quantité"] > 0)]
+                if not df_achats.empty:
+                    prix_moy = (df_achats["Quantité"] * df_achats["Prix_unitaire"]).sum() / df_achats["Quantité"].sum()
+                    pnl_realise_total += (v["Prix_unitaire"] - prix_moy) * qte_vendue
+
+        # ---- Calcul des positions ouvertes ----
         df_actifs = df_p[df_p["Ticker"].str.upper() != "CASH"]
         portefeuille = pd.DataFrame()
         if not df_actifs.empty:
-            grp = df_actifs.groupby("Ticker", as_index=False).agg({"Quantité":"sum"})
+            grp = df_actifs.groupby("Ticker", as_index=False).agg({"Quantité": "sum"})
             prix_moy = {}
             for tk in grp["Ticker"]:
-                df_tk = df_actifs[df_actifs["Ticker"]==tk]
+                df_tk = df_actifs[df_actifs["Ticker"] == tk]
                 achats = df_tk[df_tk["Quantité"] > 0]
-                prix_moy[tk] = (achats["Quantité"]*achats["Prix_unitaire"]).sum()/achats["Quantité"].sum() if not achats.empty else 0.0
+                prix_moy[tk] = (achats["Quantité"] * achats["Prix_unitaire"]).sum() / achats["Quantité"].sum() if not achats.empty else 0.0
 
-            tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"]==t,"Quantité"].values[0] != 0]
+            tickers = [t for t in grp["Ticker"] if grp.loc[grp["Ticker"] == t, "Quantité"].values[0] != 0]
             closes = fetch_last_close_batch(tickers)
 
             rows = []
             for t in tickers:
-                qty = grp.loc[grp["Ticker"]==t,"Quantité"].values[0]
-                avg_cost = prix_moy.get(t,0.0)
-                current = closes.get(t,None)
-                valeur = (current*qty) if current is not None else None
-                pnl_abs = ((current-avg_cost)*qty) if current is not None else None
-                pnl_pct = ((current-avg_cost)/avg_cost*100) if avg_cost not in (0,None) and current is not None and avg_cost != 0 else None
+                qty = grp.loc[grp["Ticker"] == t, "Quantité"].values[0]
+                avg_cost = prix_moy.get(t, 0.0)
+                current = closes.get(t, None)
+                valeur = (current * qty) if current is not None else None
+                pnl_abs = ((current - avg_cost) * qty) if current is not None else None
+                pnl_pct = ((current - avg_cost) / avg_cost * 100) if avg_cost not in (0, None) and current is not None and avg_cost != 0 else None
                 rows.append({
                     "Ticker": t,
                     "Quantité nette": qty,
-                    "Prix moyen pondéré": round(avg_cost,6),
-                    "Prix actuel": round(current,6) if current is not None else None,
-                    "Valeur totale": round(valeur,2) if valeur is not None else None,
-                    "PnL latent (€/$)": round(pnl_abs,2) if pnl_abs is not None else None,
-                    "PnL latent (%)": round(pnl_pct,2) if pnl_pct is not None else None
+                    "Prix moyen pondéré": round(avg_cost, 6),
+                    "Prix actuel": round(current, 6) if current is not None else None,
+                    "Valeur totale": round(valeur, 2) if valeur is not None else None,
+                    "PnL latent (€/$)": round(pnl_abs, 2) if pnl_abs is not None else None,
+                    "PnL latent (%)": round(pnl_pct, 2) if pnl_pct is not None else None
                 })
             portefeuille = pd.DataFrame(rows)
 
         total_valeur = portefeuille["Valeur totale"].sum() if not portefeuille.empty else 0.0
-        cols[i].metric(f"{p} : Valeur portefeuilles", f"{total_valeur:,.2f} €")
+        pnl_latent_total = portefeuille["PnL latent (€/$)"].sum() if not portefeuille.empty else 0.0
+
+        # ---- Affichage des indicateurs ----
+        cols[i].subheader(f"📊 {p}")
+        cols[i].metric("💵 Liquidité", f"{liquidite:,.2f} €")
+        cols[i].metric("💰 Valeur actifs", f"{total_valeur:,.2f} €")
+        cols[i].metric("📈 PnL latent total", f"{pnl_latent_total:,.2f} €")
+        cols[i].metric("🧾 PnL réalisé total", f"{pnl_realise_total:,.2f} €")
+
+        # ---- Affichage du graphique ----
         if not portefeuille.empty:
-            fig = px.pie(portefeuille.dropna(subset=["Valeur totale"]), values="Valeur totale", names="Ticker", title=f"{p} Répartition")
-            cols[i].plotly_chart(fig)
+            fig = px.pie(
+                portefeuille.dropna(subset=["Valeur totale"]),
+                values="Valeur totale",
+                names="Ticker",
+                title=f"Répartition de {p}"
+            )
+            cols[i].plotly_chart(fig, use_container_width=True)
 
 # -----------------------
 # Onglet 4 : Calendrier (placeholder)
