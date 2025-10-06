@@ -18,9 +18,7 @@ st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Porte
 SHEET_NAME = "transactions_dashboard"
 # Schéma étendu : ajouté id et DateTime_UTC, Devise, Source, Note
 EXPECTED_COLS = [
-    "id",
     "Date",
-    "DateTime_UTC",
     "Profil",
     "Type",
     "Ticker",
@@ -30,7 +28,6 @@ EXPECTED_COLS = [
     "Frais (€/$)",
     "PnL réalisé (€/$)",
     "PnL réalisé (%)",
-    "Source",
     "Note"
 ]
 
@@ -121,10 +118,6 @@ def load_transactions_from_sheet():
                 df[col] = df[col].astype(str).replace(["", "None", "nan"], "0").str.replace(",", ".", regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
 
-        # id : générer si manquant
-        if "id" not in df.columns or df["id"].isna().all():
-            df["id"] = df.apply(lambda _: generate_uuid(), axis=1)
-
         # Devise default
         if "Devise" not in df.columns:
             df["Devise"] = "EUR"
@@ -135,10 +128,6 @@ def load_transactions_from_sheet():
 
         # Type normalisation
         df["Type"] = df["Type"].fillna("Achat")
-
-        # Source default
-        if "Source" not in df.columns:
-            df["Source"] = "manual"
 
         # Ensure ordering of columns follows EXPECTED_COLS
         df = df.reindex(columns=EXPECTED_COLS)
@@ -384,9 +373,7 @@ with tab1:
             dt_write = datetime.utcnow()
 
             transaction = {
-                "id": tx_id,
                 "Date": date_tx,
-                "DateTime_UTC": dt_write,
                 "Profil": profil,
                 "Type": type_tx,
                 "Ticker": ticker,
@@ -396,7 +383,6 @@ with tab1:
                 "Frais (€/$)": round(frais, 2),
                 "PnL réalisé (€/$)": 0.0,
                 "PnL réalisé (%)": 0.0,
-                "Source": "manual",
                 "Note": note
             }
 
