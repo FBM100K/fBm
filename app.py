@@ -187,6 +187,7 @@ with tab1:
                 region = m.get("4. region", "")
                 if symbol and name:
                     suggestions.append(f"{symbol} — {name} ({region})")
+                st.write("DEBUG API result:", data)
             return suggestions[:15]
         except Exception as e:
             st.warning(f"Erreur recherche ticker : {e}")
