@@ -132,91 +132,62 @@ if "transactions" not in st.session_state:
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
-# ----------------------- Onglet 1 : Saisie Transactions avec Typeahead complet -----------------------
+# ----------------------- Onglet 1 : Saisie Transactions avec recherche Yahoo Finance -----------------------
 with tab1:
     st.header("Ajouter une transaction")
 
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"])
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépot €"])
 
-   # ---------------- TYPEAHEAD TICKERS (version avancée Yahoo Finance) ----------------
+    # ---------------- TYPEAHEAD TICKERS (Yahoo Finance) ----------------
     st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
 
-    # Initialiser les variables dans la session
-    if "ticker_query" not in st.session_state:
-        st.session_state.ticker_query = ""
-    if "ticker_suggestions" not in st.session_state:
-        st.session_state.ticker_suggestions = []
-    if "ticker_selected" not in st.session_state:
-        st.session_state.ticker_selected = ""
+    query = st.text_input("Rechercher un titre (ex: Apple, Tesla, TotalEnergies)").strip()
 
-    def get_yf_suggestions(query):
-        """Interroge Yahoo Finance pour récupérer les tickers correspondants"""
+    ticker = None
+    suggestions = []
+
+    if len(query) >= 2:
+        import requests
         try:
-            data = yf.search(query)
-            if not data or "quotes" not in data:
-                return []
-            results = []
-            for res in data["quotes"]:
-                symbol = res.get("symbol")
-                name = res.get("shortname", res.get("longname", ""))
-                exch = res.get("exchange", "")
-                if symbol and name:
-                    results.append(f"{symbol} — {name} ({exch})")
-            return results[:15]
-        except Exception:
-            return []
+            url = f"https://query1.finance.yahoo.com/v1/finance/search?q={query}"
+            r = requests.get(url, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                suggestions = [
+                    f"{item.get('symbol')} — {item.get('shortname', item.get('longname', ''))}"
+                    for item in data.get("quotes", [])
+                    if item.get("symbol")
+                ][:10]
+        except Exception as e:
+            st.warning(f"Erreur lors de la recherche Yahoo Finance : {e}")
 
-    # Composant interactif React pour autocomplétion
-    with elements("autocomplete_tickers"):
-        def on_change(event, value):
-            st.session_state.ticker_query = value or ""
-            if len(st.session_state.ticker_query) >= 2:
-                st.session_state.ticker_suggestions = get_yf_suggestions(st.session_state.ticker_query)
-            else:
-                st.session_state.ticker_suggestions = []
-
-        def on_select(event, value):
-            st.session_state.ticker_selected = value.split(" — ")[0] if value else ""
-
-        mui.Autocomplete(
-            options=st.session_state.ticker_suggestions,
-            value=st.session_state.ticker_selected,
-            onChange=on_select,
-            onInputChange=on_change,
-            renderInput=lambda params: mui.TextField(
-                **params,
-                label="Rechercher un titre (ex : AAPL, Tesla, TotalEnergies)",
-                variant="outlined",
-                fullWidth=True
-            ),
-            sx={"width": "100%"},
-        )
-
-    if st.session_state.ticker_selected:
-        st.success(f"✅ Ticker sélectionné : {st.session_state.ticker_selected}")
-    ticker_selected = st.session_state.ticker_selected
-
-    ticker_selected = None
     if suggestions:
-        ticker_choice = st.selectbox("Suggestions", [""] + suggestions, index=0)
+        ticker_choice = st.selectbox("Suggestions trouvées :", [""] + suggestions)
         if ticker_choice:
-            ticker_selected = ticker_choice.split(" - ")[0]
+            ticker = ticker_choice.split(" — ")[0]
+    else:
+        ticker = st.text_input("Ou entrez le ticker manuellement (ex: AAPL)").upper()
 
-    # Quantité, prix, frais, date
+    # ---------------- AUTRES CHAMPS ----------------
     quantite = st.text_input("Quantité", "0")
     prix = st.text_input("Prix (€/$)", "0")
     frais = st.text_input("Frais (€/$)", "0")
     date_input = st.date_input("Date de transaction", value=datetime.today())
 
+    def parse_float(val):
+        try:
+            return float(str(val).replace(",", "."))
+        except:
+            return 0.0
+
     if st.button("➕ Ajouter Transaction"):
-        # Conversion
         quantite = parse_float(quantite)
         prix = parse_float(prix)
         frais = parse_float(frais)
 
         # Validation
-        if type_tx in ("Achat", "Vente") and not ticker_selected:
+        if type_tx in ("Achat", "Vente") and not ticker:
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0:
             st.error("Prix doit être > 0 pour un dépôt.")
@@ -233,7 +204,7 @@ with tab1:
                 date_tx = pd.Timestamp.now()
 
             transaction = None
-            ticker = ticker_selected if ticker_selected else "CASH"
+            tck = ticker if ticker else "CASH"
 
             if type_tx == "Dépot €":
                 transaction = {
@@ -243,7 +214,7 @@ with tab1:
                     "Ticker": "CASH",
                     "Quantité": quantite,
                     "Prix": 1,
-                    "Frais (€/$)": round(frais,2),
+                    "Frais": round(frais, 2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
@@ -252,15 +223,15 @@ with tab1:
                     "Profil": profil,
                     "Date": date_tx,
                     "Type": "Achat",
-                    "Ticker": ticker,
+                    "Ticker": tck,
                     "Quantité": quantite,
-                    "Prix": round(prix,2),
-                    "Frais (€/$)": round(frais,2),
+                    "Prix": round(prix, 2),
+                    "Frais": round(frais, 2),
                     "PnL réalisé (€/$)": 0.0,
                     "PnL réalisé (%)": 0.0
                 }
             elif type_tx == "Vente":
-                df_pos = df_hist[(df_hist["Ticker"] == ticker) & (df_hist["Profil"] == profil)]
+                df_pos = df_hist[(df_hist["Ticker"] == tck) & (df_hist["Profil"] == profil)]
                 qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0
                 if qty_pos < quantite:
                     st.error("❌ Pas assez de titres pour vendre.")
@@ -275,12 +246,12 @@ with tab1:
                         "Profil": profil,
                         "Date": date_tx,
                         "Type": "Vente",
-                        "Ticker": ticker,
+                        "Ticker": tck,
                         "Quantité": -abs(quantite),
-                        "Prix": round(prix,2),
-                        "Frais (€/$)": round(frais,2),
-                        "PnL réalisé (€/$)": round(pnl_real,2),
-                        "PnL réalisé (%)": round(pnl_pct,2)
+                        "Prix": round(prix, 2),
+                        "Frais": round(frais, 2),
+                        "PnL réalisé (€/$)": round(pnl_real, 2),
+                        "PnL réalisé (%)": round(pnl_pct, 2)
                     }
 
             if transaction:
@@ -293,6 +264,7 @@ with tab1:
                 save_transactions(df_save)
                 st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
+    # ---------------- HISTORIQUE ----------------
     st.subheader("Historique des transactions")
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
