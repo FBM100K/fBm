@@ -321,13 +321,21 @@ with tab1:
         st.session_state.ticker_query = query
         if query:
             st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(query)
-            if st.session_state.ticker_suggestions:
-                sel = st.selectbox("Résultats trouvés :", st.session_state.ticker_suggestions, key=f"ticker_selectbox_{generate_uuid()}")
-                st.session_state.ticker_selected = sel.split(" — ")[0]
-            else:
+            if not st.session_state.ticker_suggestions:
                 st.warning("Aucun résultat trouvé (ou clé AlphaVantage manquante).")
         else:
             st.info("Veuillez saisir un mot-clé pour lancer la recherche.")
+
+    # ---- Selectbox stable pour choisir le ticker ----
+    if st.session_state.ticker_suggestions:
+        sel = st.selectbox(
+            "Résultats trouvés :",
+            st.session_state.ticker_suggestions,
+            key="ticker_selectbox"
+        )
+        # mettre à jour seulement si l'utilisateur sélectionne un élément
+        if sel:
+            st.session_state.ticker_selected = sel.split(" — ")[0]
 
     # ---- Feedback sélection ----
     if st.session_state.ticker_selected:
@@ -352,13 +360,11 @@ with tab1:
         if type_tx in ("Achat", "Vente") and not ticker_selected:
             st.error("Ticker requis pour Achat/Vente.")
         elif type_tx == "Dépot €" and prix <= 0 and quantite == 0:
-            # dépôt : on autorise quantité comme montant si tu utilises Quantité pour montant
             st.error("Prix ou Quantité doit être > 0 pour un dépôt.")
         elif type_tx in ("Achat", "Vente") and (quantite <= 0 or prix <= 0):
             st.error("Quantité et prix doivent être > 0 pour Achat/Vente.")
         else:
             df_hist = st.session_state.df_transactions.copy() if st.session_state.df_transactions is not None else pd.DataFrame(columns=EXPECTED_COLS)
-            # Ensure required cols
             for c in EXPECTED_COLS:
                 if c not in df_hist.columns:
                     df_hist[c] = None
@@ -387,23 +393,19 @@ with tab1:
             }
 
             if type_tx == "Dépot €":
-                # On stocke dépôt comme CASH avec Quantité = montant (ou tu peux utiliser Prix_unitaire)
                 transaction["Ticker"] = "CASH"
-                # utiliser Quantité pour le montant du dépôt pour compatibilité précédente
                 transaction["Quantité"] = round(quantite if quantite > 0 else prix, 2)
                 transaction["Prix_unitaire"] = 1.0
             elif type_tx == "Achat":
                 transaction["Quantité"] = round(quantite, 6)
                 transaction["Prix_unitaire"] = round(prix, 6)
             elif type_tx == "Vente":
-                # Vérifier quantité disponible
                 df_pos = df_hist[(df_hist["Ticker"] == ticker) & (df_hist["Profil"] == profil)]
                 qty_pos = df_pos["Quantité"].sum() if not df_pos.empty else 0.0
                 if qty_pos < quantite:
                     st.error("❌ Pas assez de titres pour vendre.")
                     transaction = None
                 else:
-                    # calcul PnL réalisé basique basé sur prix moyen d'achat
                     achats = df_pos[df_pos["Quantité"] > 0]
                     total_qty_achats = achats["Quantité"].sum() if not achats.empty else 0.0
                     prix_moyen = ((achats["Quantité"] * achats["Prix_unitaire"]).sum() / total_qty_achats) if total_qty_achats > 0 else 0.0
@@ -415,9 +417,7 @@ with tab1:
                     transaction["PnL réalisé (%)"] = round(pnl_pct, 2)
 
             if transaction:
-                # Append to DataFrame and save
                 df_new = pd.concat([df_hist, pd.DataFrame([transaction])], ignore_index=True)
-                # Reindex to expected columns
                 for c in EXPECTED_COLS:
                     if c not in df_new.columns:
                         df_new[c] = None
@@ -433,9 +433,7 @@ with tab1:
     st.subheader("Historique des transactions")
     if st.session_state.df_transactions is not None and not st.session_state.df_transactions.empty:
         df_tx = st.session_state.df_transactions.copy()
-        # afficher trié
         if "Date" in df_tx.columns:
-            # transformer date pour tri
             df_tx["Date_sort"] = pd.to_datetime(df_tx["Date"], errors="coerce")
             st.dataframe(df_tx.sort_values(by="Date_sort", ascending=False).drop(columns=["Date_sort"]).reset_index(drop=True).head(200), width='stretch')
         else:
