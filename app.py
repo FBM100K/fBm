@@ -6,6 +6,7 @@ import plotly.express as px
 from datetime import datetime, date
 from google.oauth2.service_account import Credentials
 from streamlit_elements import elements, mui
+import requests
 
 # -----------------------
 # Config
@@ -145,9 +146,7 @@ if "transactions" not in st.session_state:
 # -----------------------
 tab1, tab2, tab3 = st.tabs(["💰 Transactions", "📂 Portefeuille", "📊 Répartition"])
 
-# -----------------------
-# Onglet 1 : Saisie Transactions avec Typeahead Yahoo Finance
-# -----------------------
+# ----------------------- Onglet 1 : Saisie Transactions avec recherche Alpha Vantage -----------------------
 with tab1:
     st.header("Ajouter une transaction")
 
@@ -156,7 +155,7 @@ with tab1:
 
     st.markdown("### 🔍 Recherche de titre (Ticker ou Nom d’entreprise)")
 
-    # Initialisation variables session
+    # ---- Initialisation variables session ----
     if "ticker_query" not in st.session_state:
         st.session_state.ticker_query = ""
     if "ticker_suggestions" not in st.session_state:
@@ -164,30 +163,41 @@ with tab1:
     if "ticker_selected" not in st.session_state:
         st.session_state.ticker_selected = ""
 
-    def get_yf_suggestions(query: str):
+    # ---- API Alpha Vantage ----
+    ALPHA_VANTAGE_API_KEY = st.secrets["alpha_vantage"]["api_key"]
+
+    def get_alpha_vantage_suggestions(query: str):
+        """Recherche de tickers via Alpha Vantage"""
+        if not query or len(query) < 2:
+            return []
+        url = "https://www.alphavantage.co/query"
+        params = {
+            "function": "SYMBOL_SEARCH",
+            "keywords": query,
+            "apikey": ALPHA_VANTAGE_API_KEY
+        }
         try:
-            res = yf.search(query)
-            if not res or "quotes" not in res:
-                return []
+            res = requests.get(url, params=params)
+            data = res.json()
+            matches = data.get("bestMatches", [])
             suggestions = []
-            for item in res["quotes"]:
-                symbol = item.get("symbol")
-                name = item.get("shortname", item.get("longname", ""))
-                exch = item.get("exchange", "")
+            for m in matches:
+                symbol = m.get("1. symbol", "")
+                name = m.get("2. name", "")
+                region = m.get("4. region", "")
                 if symbol and name:
-                    suggestions.append(f"{symbol} — {name} ({exch})")
+                    suggestions.append(f"{symbol} — {name} ({region})")
             return suggestions[:15]
-        except Exception:
+        except Exception as e:
+            st.warning(f"Erreur recherche ticker : {e}")
             return []
 
-    # Autocomplete Streamlit Elements
-    from streamlit_elements import elements, mui
-
+    # ---- Autocomplete Streamlit Elements ----
     with elements("ticker_autocomplete"):
         def on_input_change(event, value):
             st.session_state.ticker_query = value or ""
             if len(st.session_state.ticker_query) >= 2:
-                st.session_state.ticker_suggestions = get_yf_suggestions(st.session_state.ticker_query)
+                st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(st.session_state.ticker_query)
             else:
                 st.session_state.ticker_suggestions = []
 
@@ -201,7 +211,7 @@ with tab1:
             onInputChange=on_input_change,
             renderInput=lambda params: mui.TextField(
                 **params,
-                label="Rechercher un ticker (ex : AAPL, TSLA, TOT)",
+                label="Rechercher un ticker (Alpha Vantage)",
                 variant="outlined",
                 fullWidth=True
             ),
@@ -209,13 +219,13 @@ with tab1:
             disablePortal=True
         )
 
-    # Feedback sélection
+    # ---- Feedback sélection ----
     if st.session_state.ticker_selected:
         st.success(f"✅ Ticker sélectionné : {st.session_state.ticker_selected}")
 
     ticker_selected = st.session_state.ticker_selected or None
 
-    # Saisie transaction
+    # ---- Saisie transaction ----
     quantite = st.text_input("Quantité", "0")
     prix = st.text_input("Prix (€/$)", "0")
     frais = st.text_input("Frais (€/$)", "0")
@@ -303,7 +313,7 @@ with tab1:
                 save_transactions(df_save)
                 st.success(f"{type_tx} enregistré : {transaction['Ticker']}")
 
-    # Historique
+    # ---- Historique ----
     st.subheader("Historique des transactions")
     if st.session_state.transactions:
         df_tx = pd.DataFrame(st.session_state.transactions)
