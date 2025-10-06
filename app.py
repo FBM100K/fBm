@@ -621,10 +621,15 @@ with tab3:
 
         # ---- Affichage des indicateurs ----
         cols[i].subheader(f"📊 {p}")
-        cols[i].metric("💵 Liquidité", f"{liquidite:,.2f} €")
-        cols[i].metric("💰 Valeur actifs", f"{total_valeur:,.2f} €")
-        cols[i].metric("📈 PnL latent total", f"{pnl_latent_total:,.2f} €")
-        cols[i].metric("🧾 PnL réalisé total", f"{pnl_realise_total:,.2f} €")
+        # créer deux colonnes pour la première ligne
+        row1_col1, row1_col2 = cols[i].columns(2)
+        row2_col1, row2_col2 = cols[i].columns(2)
+        # première ligne
+        row1_col1.metric("💵 Liquidité", f"{liquidite:,.2f} €")
+        row1_col2.metric("💰 Valeur actifs", f"{total_valeur:,.2f} €")
+        # deuxième ligne
+        row2_col1.metric("📈 PnL latent total", f"{pnl_latent_total:,.2f} €")
+        row2_col2.metric("🧾 PnL réalisé total", f"{pnl_realise_total:,.2f} €")
 
         # ---- Affichage du graphique ----
         if not portefeuille.empty:
