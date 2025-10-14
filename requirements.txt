@@ -1,8 +1,9 @@
 streamlit
-pandas
-yfinance
-plotly
 gspread
-oauth2client
-streamlit-elements
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+yfinance
+pandas
+plotly
 requests
