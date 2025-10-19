@@ -21,6 +21,7 @@ from currency_manager import CurrencyManager
 # -----------------------
 st.set_page_config(page_title="Dashboard Portefeuille V2.1", layout="wide")
 
+SHEET_NAME = "transactions_dashboard"
 # -----------------------
 # Initialisation des états Streamlit
 # -----------------------
@@ -39,7 +40,6 @@ col_title, col_currency = st.columns([3, 1])
 with col_title:
     st.divider()
 
-    
     # Indicateur taux de change
     cache_info = currency_manager.get_cache_info()
     if cache_info["status"] != "Non initialisé":
