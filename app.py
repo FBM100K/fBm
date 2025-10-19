@@ -78,7 +78,7 @@ with col_title:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
 with col_currency:
     if "devise_affichage" not in st.session_state:
         st.session_state.devise_affichage = "EUR"
