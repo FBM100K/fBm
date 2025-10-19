@@ -38,32 +38,7 @@ if "df_transactions" not in st.session_state:
 col_title, col_currency = st.columns([3, 1])
 with col_title:
     st.divider()
-    
-    st.subheader("🔄 Actions")
-    
-    if st.button("♻️ Rafraîchir données", use_container_width=True):
-        st.cache_data.clear()
-        st.session_state.df_transactions = load_transactions_from_sheet()
-        st.session_state.currency_manager.clear_cache()
-        st.success("✅ Données rechargées")
-        st.rerun()
-    
-    if st.button("📥 Exporter CSV", use_container_width=True):
-        if st.session_state.df_transactions is not None:
-            csv = st.session_state.df_transactions.to_csv(index=False)
-            st.download_button(
-                label="💾 Télécharger",
-                data=csv,
-                file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
-            )
-    
-    st.divider()
-    
-    st.subheader("ℹ️ Informations")
-    st.caption("Dashboard Portefeuille V2.1")
-    st.caption("Multi-devises EUR/USD")
-    st.caption(f"Dernière mise à jour: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+
     
     # Indicateur taux de change
     cache_info = currency_manager.get_cache_info()
@@ -86,26 +61,6 @@ with col_title:
             else:
                 st.success("✅ Toutes les ventes ont PRU_vente")
 
-# -----------------------
-# FOOTER
-# -----------------------
-st.divider()
-st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
-with col_currency:
-    if "devise_affichage" not in st.session_state:
-        st.session_state.devise_affichage = "EUR"
-    
-    devise_affichage = st.radio(
-        "💱 Devise",
-        options=["EUR", "USD"],
-        index=0 if st.session_state.devise_affichage == "EUR" else 1,
-        horizontal=True,
-        key="currency_toggle"
-    )
-    st.session_state.devise_affichage = devise_affichage
-
-SHEET_NAME = "transactions_dashboard"
 
 # ⭐ COLONNES V2.1 MULTI-DEVISES
 EXPECTED_COLS = [
@@ -661,5 +616,52 @@ with st.sidebar:
         st.metric("Transactions", nb_tx)
         st.metric("Profils", nb_profils)
         st.metric("Titres uniques", nb_tickers)
+
+    st.divider()
     
-    st
+    st.subheader("🔄 Actions")
+    
+    if st.button("♻️ Rafraîchir données", use_container_width=True):
+        st.cache_data.clear()
+        st.session_state.df_transactions = load_transactions_from_sheet()
+        st.session_state.currency_manager.clear_cache()
+        st.success("✅ Données rechargées")
+        st.rerun()
+    
+    if st.button("📥 Exporter CSV", use_container_width=True):
+        if st.session_state.df_transactions is not None:
+            csv = st.session_state.df_transactions.to_csv(index=False)
+            st.download_button(
+                label="💾 Télécharger",
+                data=csv,
+                file_name=f"portfolio_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+    
+    st.divider()
+    
+    st.subheader("ℹ️ Informations")
+    st.caption("Dashboard Portefeuille V2.1")
+    st.caption("Multi-devises EUR/USD")
+    st.caption(f"Dernière mise à jour: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+
+# -----------------------
+# FOOTER
+# -----------------------
+st.divider()
+st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
+st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
+with col_currency:
+    if "devise_affichage" not in st.session_state:
+        st.session_state.devise_affichage = "EUR"
+    
+    devise_affichage = st.radio(
+        "💱 Devise",
+        options=["EUR", "USD"],
+        index=0 if st.session_state.devise_affichage == "EUR" else 1,
+        horizontal=True,
+        key="currency_toggle"
+    )
+    st.session_state.devise_affichage = devise_affichage
+
+SHEET_NAME = "transactions_dashboard"
