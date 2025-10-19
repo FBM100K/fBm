@@ -21,6 +21,19 @@ from currency_manager import CurrencyManager
 # -----------------------
 st.set_page_config(page_title="Dashboard Portefeuille V2.1", layout="wide")
 
+# -----------------------
+# Initialisation des états Streamlit
+# -----------------------
+
+if "currency_manager" not in st.session_state:
+    from currency_manager import CurrencyManager
+    st.session_state.currency_manager = CurrencyManager()
+
+currency_manager = st.session_state.currency_manager
+
+if "df_transactions" not in st.session_state:
+    st.session_state.df_transactions = None
+
 # ⭐ NOUVEAU : Toggle devise en header
 col_title, col_currency = st.columns([3, 1])
 with col_title:
