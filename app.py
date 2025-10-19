@@ -20,6 +20,7 @@ from currency_manager import CurrencyManager
 # Config
 # -----------------------
 st.set_page_config(page_title="Dashboard Portefeuille V2.1", layout="wide")
+st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
 
 SHEET_NAME = "transactions_dashboard"
 # -----------------------
@@ -650,7 +651,6 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
 with col_currency:
     if "devise_affichage" not in st.session_state:
         st.session_state.devise_affichage = "EUR"
@@ -663,5 +663,4 @@ with col_currency:
         key="currency_toggle"
     )
     st.session_state.devise_affichage = devise_affichage
-
 SHEET_NAME = "transactions_dashboard"
