@@ -330,7 +330,7 @@ with tab1:
         elif prix <= 0.0001 and type_tx not in ["Dépôt", "Retrait"]:
             st.error("Prix doit être > 0.0001")
         else:
-            df_hist = st.session_state.df_transactions.copy()
+            df_hist = st.session_state.df_transactions.copy() if st.session_state.df_transactions is not None else pd.DataFrame(columns=EXPECTED_COLS)
             engine = PortfolioEngine(df_hist)
             
             ticker = ticker_selected if ticker_selected else "CASH"
