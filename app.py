@@ -252,34 +252,26 @@ with tab1:
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"], index=0)
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépôt", "Retrait", "Dividende"], index=0)
     
-    # Recherche ticker (identique V1)
-    st.markdown("Recherche de titre (Ticker ou Nom d’entreprise)")
-
-    # ---- Initialisation variables session ----
+    st.markdown("### Recherche de titre")
+    
     if "ticker_query" not in st.session_state:
         st.session_state.ticker_query = ""
     if "ticker_suggestions" not in st.session_state:
         st.session_state.ticker_suggestions = []
     if "ticker_selected" not in st.session_state:
         st.session_state.ticker_selected = ""
-
-    # ---- Alpha Vantage config (optionnel) ----
+    
     ALPHA_VANTAGE_API_KEY = None
     try:
         ALPHA_VANTAGE_API_KEY = st.secrets["alpha_vantage"]["api_key"]
-    except Exception:
+    except:
         ALPHA_VANTAGE_API_KEY = None
-
+    
     def get_alpha_vantage_suggestions(query: str):
-        """Recherche de tickers via Alpha Vantage (best effort)."""
         if not ALPHA_VANTAGE_API_KEY or not query or len(query) < 2:
             return []
         url = "https://www.alphavantage.co/query"
-        params = {
-            "function": "SYMBOL_SEARCH",
-            "keywords": query,
-            "apikey": ALPHA_VANTAGE_API_KEY
-        }
+        params = {"function": "SYMBOL_SEARCH", "keywords": query, "apikey": ALPHA_VANTAGE_API_KEY}
         try:
             res = requests.get(url, params=params, timeout=10)
             data = res.json()
@@ -292,38 +284,27 @@ with tab1:
                 if symbol and name:
                     suggestions.append(f"{symbol} — {name} ({region})")
             return suggestions[:15]
-        except Exception:
+        except:
             return []
-
-    # ---- Interface recherche simple ----
-    query = st.text_input("Entrez un nom ou ticker à rechercher :", value=st.session_state.ticker_query)
+    
+    query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query)
     if st.button("🔎 Rechercher"):
         st.session_state.ticker_query = query
         if query:
             st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(query)
             if not st.session_state.ticker_suggestions:
-                st.warning("Aucun résultat trouvé (ou clé AlphaVantage manquante).")
-        else:
-            st.info("Veuillez saisir un mot-clé pour lancer la recherche.")
-
-    # ---- Selectbox stable pour choisir le ticker ----
+                st.warning("Aucun résultat")
+    
     if st.session_state.ticker_suggestions:
-        sel = st.selectbox(
-            "Résultats trouvés :",
-            st.session_state.ticker_suggestions,
-            key="ticker_selectbox"
-        )
-        # mettre à jour seulement si l'utilisateur sélectionne un élément
+        sel = st.selectbox("Résultats :", st.session_state.ticker_suggestions, key="ticker_selectbox")
         if sel:
             st.session_state.ticker_selected = sel.split(" — ")[0]
-
-    # ---- Feedback sélection ----
+    
     if st.session_state.ticker_selected:
-        st.success(f"✅ Ticker sélectionné : {st.session_state.ticker_selected}")
-
+        st.success(f"✅ Ticker : {st.session_state.ticker_selected}")
+    
     ticker_selected = st.session_state.ticker_selected or None
     
-    # Formulaire
     st.markdown("### Détails de la transaction")
     
     col1, col2 = st.columns(2)
@@ -349,7 +330,13 @@ with tab1:
         elif prix <= 0.0001 and type_tx not in ["Dépôt", "Retrait"]:
             st.error("Prix doit être > 0.0001")
         else:
-            df_hist = st.session_state.df_transactions.copy() if st.session_state.df_transactions is not None else pd.DataFrame(columns=EXPECTED_COLS)
+            df_hist = (st.session_state.df_transactions.copy()
+            if isinstance(st.session_state.df_transactions, pd.DataFrame)
+            else load_transactions_from_sheet())
+
+        if df_hist.empty:
+            df_hist = pd.DataFrame(columns=EXPECTED_COLS)
+            
             engine = PortfolioEngine(df_hist)
             
             ticker = ticker_selected if ticker_selected else "CASH"
