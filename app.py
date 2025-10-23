@@ -252,6 +252,7 @@ with tab1:
     profil = st.selectbox("Portefeuille / Profil", ["Gas", "Marc"], index=0)
     type_tx = st.selectbox("Type", ["Achat", "Vente", "Dépôt", "Retrait", "Dividende"], index=0)
     
+    # Recherche ticker (identique V1)
     st.markdown("### Recherche de titre")
     
     if "ticker_query" not in st.session_state:
@@ -305,6 +306,7 @@ with tab1:
     
     ticker_selected = st.session_state.ticker_selected or None
     
+    # Formulaire
     st.markdown("### Détails de la transaction")
     
     col1, col2 = st.columns(2)
@@ -663,4 +665,3 @@ with col_currency:
         key="currency_toggle"
     )
     st.session_state.devise_affichage = devise_affichage
-SHEET_NAME = "transactions_dashboard"
