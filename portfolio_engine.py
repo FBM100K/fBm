@@ -422,14 +422,15 @@ class PortfolioEngine:
             if qty != 0:
                 pru = self.calculate_pru(ticker, prof)
                 devise_position = group.iloc[0]["Devise"]
+                nom_complet = group.iloc[0]["Nom complet"] if "Nom complet" in group.columns else ticker
                 positions.append({
                     "Ticker": ticker,
+                    "Nom complet": nom_complet,
                     "Profil": prof,
                     "Quantité": round(qty, 6),
                     "PRU": round(pru, 6),
                     "Devise": devise_position
                 })
-        
         return pd.DataFrame(positions)
     
     def get_positions_consolide(self) -> pd.DataFrame:
