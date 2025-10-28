@@ -333,7 +333,7 @@ with tab1:
     devise = st.selectbox("Devise", ["EUR", "USD"], index=0)
     note = st.text_area("Note (optionnel)", "", max_chars=500)
     
-        if st.button("➕ Ajouter Transaction", type="primary"):
+    if st.button("➕ Ajouter Transaction", type="primary"):
         quantite = parse_float(quantite_input)
         prix = parse_float(prix_input)
         frais = parse_float(frais_input)
