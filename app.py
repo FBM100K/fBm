@@ -333,11 +333,11 @@ with tab1:
     devise = st.selectbox("Devise", ["EUR", "USD"], index=0)
     note = st.text_area("Note (optionnel)", "", max_chars=500)
     
-    if st.button("➕ Ajouter Transaction", type="primary"):
+        if st.button("➕ Ajouter Transaction", type="primary"):
         quantite = parse_float(quantite_input)
         prix = parse_float(prix_input)
         frais = parse_float(frais_input)
-        
+            
         if type_tx in ("Achat", "Vente") and not ticker_selected:
             st.error("Ticker requis pour Achat/Vente")
         elif quantite <= 0.0001:
@@ -345,18 +345,18 @@ with tab1:
         elif prix <= 0.0001 and type_tx not in ["Dépôt", "Retrait"]:
             st.error("Prix doit être > 0.0001")
         else:
-            df_hist = (st.session_state.df_transactions.copy()
-                if isinstance(st.session_state.df_transactions, pd.DataFrame)
-                else load_transactions_from_sheet())
-
-        if df_hist.empty:
-            df_hist = pd.DataFrame(columns=EXPECTED_COLS)
+            # 🔧 Correction ici
+            if isinstance(st.session_state.df_transactions, pd.DataFrame) and not st.session_state.df_transactions.empty:
+                df_hist = st.session_state.df_transactions.copy()
+            else:
+                df_hist = load_transactions_from_sheet()
+            
+            if df_hist.empty:
+                df_hist = pd.DataFrame(columns=EXPECTED_COLS)
             
             engine = PortfolioEngine(df_hist)
-            
             ticker = ticker_selected if ticker_selected else "CASH"
             date_tx = pd.to_datetime(date_input)
-            
             transaction = None
             
             if type_tx == "Achat" and ticker != "CASH":
