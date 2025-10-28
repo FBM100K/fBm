@@ -382,7 +382,7 @@ with tab1:
             return []
 
     # --- Barre de recherche alignée horizontalement ---
-    col_rech1, col_rech2 = st.columns([5, 1])
+    col_rech1, col_rech2 = st.columns([4, 1])
     with col_rech1:
         query = st.text_input(
             "Entrez un nom ou ticker :",
@@ -806,4 +806,5 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
+
 
