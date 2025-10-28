@@ -165,6 +165,9 @@ def save_transactions_to_sheet(df):
         return False
     
     df_out = df.copy()
+    if df.empty:
+        st.error("Tentative de sauvegarde d'un DataFrame vide — opération annulée.")
+        return False
     
     if "Date" in df_out.columns:
         df_out["Date"] = df_out["Date"].apply(
@@ -243,9 +246,16 @@ def fetch_last_close_batch(tickers):
 # -----------------------
 # State init
 # -----------------------
-if "df_transactions" not in st.session_state:
-    df_loaded = load_transactions_from_sheet()
-    st.session_state.df_transactions = df_loaded
+if sheet is not None:
+    if "df_transactions" not in st.session_state or st.session_state.df_transactions is None or st.session_state.df_transactions.empty:
+        df_loaded = load_transactions_from_sheet()
+        if df_loaded is not None and not df_loaded.empty:
+            st.session_state.df_transactions = df_loaded
+        else:
+            st.warning("⚠️ Aucune donnée chargée depuis Google Sheets (peut-être vide ou non accessible)")
+else:
+    st.error("❌ Impossible de se connecter à Google Sheets - vérifiez st.secrets")
+
 
 if "currency_manager" not in st.session_state:
     st.session_state.currency_manager = CurrencyManager()
