@@ -369,84 +369,6 @@ with tab1:
     
     ticker_selected = st.session_state.ticker_selected or None
     
-    st.markdown("### Recherche de titre")
-    
-    if "ticker_query" not in st.session_state:
-        st.session_state.ticker_query = ""
-    if "ticker_suggestions" not in st.session_state:
-        st.session_state.ticker_suggestions = []
-    if "ticker_selected" not in st.session_state:
-        st.session_state.ticker_selected = ""
-    
-    ALPHA_VANTAGE_API_KEY = None
-    try:
-        ALPHA_VANTAGE_API_KEY = st.secrets["alpha_vantage"]["api_key"]
-    except:
-        ALPHA_VANTAGE_API_KEY = None
-    
-    @st.cache_data(ttl=1600)
-    def get_alpha_vantage_suggestions(query: str):
-        if not ALPHA_VANTAGE_API_KEY or not query or len(query) < 2:
-            return []
-        url = "https://www.alphavantage.co/query"
-        params = {"function": "SYMBOL_SEARCH", "keywords": query, "apikey": ALPHA_VANTAGE_API_KEY}
-        try:
-            res = requests.get(url, params=params, timeout=10)
-            data = res.json()
-            matches = data.get("bestMatches", [])
-            suggestions = []
-            for m in matches:
-                symbol = m.get("1. symbol", "")
-                name = m.get("2. name", "")
-                region = m.get("4. region", "")
-                if symbol and name:
-                    suggestions.append(f"{symbol} — {name} ({region})")
-            return suggestions[:15]
-        except Exception as e:
-            st.error(f"Erreur API: {e}")
-            return []
-    
-    # 🔍 Champ de recherche avec bouton
-    col_search, col_btn = st.columns([4, 1])
-    with col_search:
-        query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query, placeholder="Ex: Apple, AAPL...")
-    with col_btn:
-        st.write("")  # Alignement vertical
-        search_clicked = st.button("🔎", use_container_width=True)
-    
-    # Lancement de la recherche
-    if search_clicked and query:
-        st.session_state.ticker_query = query
-        with st.spinner("🔍 Recherche..."):
-            st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(query)
-        
-        if not st.session_state.ticker_suggestions:
-            st.warning("❌ Aucun résultat")
-    
-    # Affichage des résultats de recherche
-    if st.session_state.ticker_suggestions:
-        st.success(f"✅ {len(st.session_state.ticker_suggestions)} résultat(s)")
-        sel = st.selectbox("Sélectionnez :", st.session_state.ticker_suggestions, key="ticker_selectbox")
-        
-        if sel:
-            ticker_extrait = sel.split(" — ")[0]
-            if ticker_extrait != st.session_state.ticker_selected:
-                st.session_state.ticker_selected = ticker_extrait
-                st.rerun()
-    
-    # Affichage du ticker sélectionné
-    if st.session_state.ticker_selected:
-        col_ticker, col_reset = st.columns([3, 1])
-        with col_ticker:
-            st.success(f"✅ Ticker : **{st.session_state.ticker_selected}**")
-        with col_reset:
-            if st.button("🔄 Changer"):
-                st.session_state.ticker_selected = ""
-                st.session_state.ticker_suggestions = []
-                st.rerun()
-    
-    ticker_selected = st.session_state.ticker_selected or None
-    
     st.markdown("### Détails de la transaction")
     
     col1, col2 = st.columns(2)
@@ -489,7 +411,7 @@ with tab1:
 
         # Appel API seulement si pas en cache
         full_name = get_ticker_full_name_from_api(ticker)
-        cache[ticker] = full_name
+        cache[ticker] = full_name  # On enregistre la valeur dans le cache local
         st.session_state.ticker_cache = cache
         return full_name
 
@@ -844,4 +766,3 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-
