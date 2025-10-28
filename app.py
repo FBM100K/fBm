@@ -125,7 +125,7 @@ def parse_float(val):
 # -----------------------
 # Lecture / écriture transactions
 # -----------------------
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=0)
 def load_transactions_from_sheet():
     if sheet is None:
         return pd.DataFrame(columns=EXPECTED_COLS)
