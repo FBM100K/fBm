@@ -533,8 +533,8 @@ with tab2:
         
         if not positions.empty:
             st.subheader("Positions ouvertes")
-            display_positions = positions[["Ticker", "Profil", "Quantité", "PRU", "Devise", "Prix_actuel", "Valeur_display", "PnL_latent", "PnL_latent_%"]].copy()
-            display_positions.columns = ["Ticker", "Profil", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
+            display_positions = positions[["Ticker", "Quantité", "PRU", "Devise", "Prix_actuel", "Valeur_display", "PnL_latent", "PnL_latent_%"]].copy()
+            display_positions.columns = ["Ticker", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
             display_positions = display_positions.sort_values("PnL €/$", ascending=False)
             st.dataframe(display_positions, use_container_width=True, hide_index=True)
             
@@ -722,3 +722,4 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
+
