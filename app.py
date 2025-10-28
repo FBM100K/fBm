@@ -251,6 +251,21 @@ if "currency_manager" not in st.session_state:
     st.session_state.currency_manager = CurrencyManager()
 
 currency_manager = st.session_state.currency_manager
+# -----------------------
+# Changement devise
+# -----------------------
+with col_currency:
+    if "devise_affichage" not in st.session_state:
+        st.session_state.devise_affichage = "EUR"
+    
+    devise_affichage = st.radio(
+        "💱 Devise",
+        options=["EUR", "USD"],
+        index=0 if st.session_state.devise_affichage == "EUR" else 1,
+        horizontal=True,
+        key="currency_toggle"
+    )
+    st.session_state.devise_affichage = devise_affichage
 
 # -----------------------
 # Onglets
@@ -679,15 +694,4 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-with col_currency:
-    if "devise_affichage" not in st.session_state:
-        st.session_state.devise_affichage = "EUR"
-    
-    devise_affichage = st.radio(
-        "💱 Devise",
-        options=["EUR", "USD"],
-        index=0 if st.session_state.devise_affichage == "EUR" else 1,
-        horizontal=True,
-        key="currency_toggle"
-    )
-    st.session_state.devise_affichage = devise_affichage
+
