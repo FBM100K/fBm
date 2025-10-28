@@ -381,10 +381,17 @@ with tab1:
             st.error(f"Erreur Alpha Vantage : {e}")
             return []
 
-    col_rech1, col_rech2 = st.columns([4, 1])
+    # --- Barre de recherche alignée horizontalement ---
+    col_rech1, col_rech2 = st.columns([5, 1])
     with col_rech1:
-        query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query)
+        query = st.text_input(
+            "Entrez un nom ou ticker :",
+            value=st.session_state.ticker_query,
+            label_visibility="collapsed",  # cache le label pour un meilleur alignement
+            placeholder="Ex: AAPL, Tesla..."
+        )
     with col_rech2:
+        st.write("")  # espace vertical pour aligner le bouton
         if st.button("🔎 Rechercher", use_container_width=True):
             st.session_state.ticker_query = query
             if query:
