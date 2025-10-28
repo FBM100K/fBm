@@ -33,49 +33,44 @@ class PortfolioEngine:
             if col in self.df.columns:
                 self.df[col] = self.df[col].fillna("").astype(str)
     
-    def calculate_pru(self, ticker: str, profil: str, date_limite: Optional[datetime] = None) -> float:
-        """Calcule le PRU avec frais."""
+    def calculate_pru(self, ticker: str, profil: str = None, date_limite: Optional[datetime] = None) -> float:
+        """Calcule le PRU global (tous profils confondus)."""
         mask = (
-            (self.df["Ticker"] == ticker) & 
-            (self.df["Profil"] == profil) &
+            (self.df["Ticker"] == ticker) &
             (self.df["Type"] == "Achat") &
             (self.df["Quantité"] > 0)
         )
-        
         if date_limite is not None:
             mask &= (self.df["Date"] < date_limite)
-        
+
         achats = self.df[mask]
-        
+
         if achats.empty:
             return 0.0
-        
+
         total_cout = (achats["Quantité"] * achats["Prix_unitaire"]).sum()
         total_frais_achat = achats["Frais (€/$)"].sum()
         total_quantite = achats["Quantité"].sum()
-        
+
         if total_quantite == 0:
             return 0.0
-        
+
         pru = (total_cout + total_frais_achat) / total_quantite
         return round(pru, 6)
     
-    def get_position_quantity(self, ticker: str, profil: str, date_limite: Optional[datetime] = None) -> float:
-        """Calcule la quantité nette détenue."""
+    def get_position_quantity(self, ticker: str, profil: str = None, date_limite: Optional[datetime] = None) -> float:
+        """Retourne la quantité totale (tous profils confondus)."""
         mask = (
-            (self.df["Ticker"] == ticker) & 
-            (self.df["Profil"] == profil) &
+            (self.df["Ticker"] == ticker) &
             (self.df["Type"].isin(["Achat", "Vente"]))
         )
-        
         if date_limite is not None:
             mask &= (self.df["Date"] < date_limite)
-        
+
         transactions = self.df[mask]
-        
         if transactions.empty:
             return 0.0
-        
+
         return transactions["Quantité"].sum()
     
     def validate_currency_consistency(self, ticker: str, profil: str, devise: str) -> Tuple[bool, str]:
@@ -103,15 +98,15 @@ class PortfolioEngine:
         return True, ""
     
     def validate_sale(self, ticker: str, profil: str, quantite_vente: float, date_vente: datetime) -> Tuple[bool, str]:
-        """Valide qu'une vente est possible."""
-        qty_disponible = self.get_position_quantity(ticker, profil, date_vente)
-        
+        """Valide qu'une vente est possible (quantité globale)."""
+        qty_disponible = self.get_position_quantity(ticker, None, date_vente)
+
         if qty_disponible < quantite_vente:
-            return False, f"❌ Quantité insuffisante. Disponible: {qty_disponible:.6f}, Demandé: {quantite_vente:.6f}"
-        
+            return False, f"❌ Quantité insuffisante (globale). Disponible: {qty_disponible:.6f}, Demandé: {quantite_vente:.6f}"
+
         if quantite_vente <= 0:
             return False, "❌ La quantité de vente doit être > 0"
-        
+
         return True, ""
     
     def prepare_achat_transaction(self, ticker: str, profil: str, quantite: float, prix_achat: float,
