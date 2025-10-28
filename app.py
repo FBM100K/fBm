@@ -484,14 +484,14 @@ with tab2:
             target_currency=devise_affichage,
             currency_manager=currency_manager
         )
-        positions = engine.get_positions()
+        positions = engine.get_positions_consolide()
         
         cache_info = currency_manager.get_cache_info()
         if cache_info["status"] != "Non initialisé":
             status_color = "🟢" if not cache_info["using_fallback"] else "🟠"
             st.caption(f"{status_color} {currency_manager.get_rate_display('EUR', 'USD')} | {cache_info['status']} (màj: {cache_info['age_minutes']}min)")
         
-        st.subheader(f"📊 Indicateurs clés ({devise_affichage})")
+        st.subheader(f"Indicateurs clés ({devise_affichage})")
         k1, k2, k3, k4, k5 = st.columns(5)
         
         k1.metric("💵 Dépôts totaux", f"{summary['total_depots']:,.2f} {symbole}")
@@ -532,7 +532,7 @@ with tab2:
         st.divider()
         
         if not positions.empty:
-            st.subheader("📋 Positions ouvertes")
+            st.subheader("Positions ouvertes")
             display_positions = positions[["Ticker", "Profil", "Quantité", "PRU", "Devise", "Prix_actuel", "Valeur_display", "PnL_latent", "PnL_latent_%"]].copy()
             display_positions.columns = ["Ticker", "Profil", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
             display_positions = display_positions.sort_values("PnL €/$", ascending=False)
@@ -569,7 +569,7 @@ with tab2:
 # ONGLET 3 : Répartition par Profil
 # -----------------------
 with tab3:
-    st.header("📊 Comparatif portefeuilles individuels")
+    st.header("📊 Répartition portefeuilles individuels")
     
     if st.session_state.df_transactions is None or st.session_state.df_transactions.empty:
         st.info("Aucune transaction")
@@ -582,7 +582,7 @@ with tab3:
         
         for i, profil in enumerate(profils):
             with cols[i]:
-                st.subheader(f"📊 {profil}")
+                st.subheader(f"{profil}")
                 
                 df_profil = st.session_state.df_transactions[st.session_state.df_transactions["Profil"] == profil]
                 
@@ -722,4 +722,3 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-
