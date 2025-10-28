@@ -394,7 +394,7 @@ with tab1:
                     st.warning("Aucun résultat")
 
     if st.session_state.ticker_suggestions:
-        sel = st.selectbox("Résultats :", st.session_state.ticker_suggestions, key="ticker_selectbox")
+        sel = st.selectbox("Choisissez l'action :", st.session_state.ticker_suggestions, key="ticker_selectbox")
         if sel:
             st.session_state.ticker_selected = sel.split(" — ")[0]
     
@@ -414,7 +414,7 @@ with tab1:
         date_input = st.date_input("Date", value=datetime.today())
     
     devise = st.selectbox("Devise", ["EUR", "USD"], index=0)
-    note = st.text_area("Note (optionnel)", "", max_chars=500)
+    note = st.text_area("Note (optionnel)", "", max_chars=250)
 
     @st.cache_data(ttl=1600)
     def get_ticker_full_name_from_api(ticker: str):
