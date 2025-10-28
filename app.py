@@ -20,13 +20,17 @@ from currency_manager import CurrencyManager
 # Config
 # -----------------------
 st.set_page_config(page_title="Dashboard Portefeuille V2.1", layout="wide")
-st.markdown("<h1 style='text-align: left; font-size: 30px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: left; font-size: 32px;'>📊 Dashboard Portefeuille - FBM V2.1</h1>", unsafe_allow_html=True)
 
 SHEET_NAME = "transactions_dashboard"
+
+# ---- Initialisation clé devise ----
+if "devise_affichage" not in st.session_state:
+    st.session_state.devise_affichage = "EUR"
+
 # -----------------------
 # Initialisation des états Streamlit
 # -----------------------
-
 if "currency_manager" not in st.session_state:
     from currency_manager import CurrencyManager
     st.session_state.currency_manager = CurrencyManager()
@@ -137,7 +141,7 @@ def load_transactions_from_sheet():
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
         
         numeric_cols = ["Quantité", "Prix_unitaire", "Frais (€/$)", 
-                       "PnL réalisé (€/$)", "PnL réalisé (%)", "PRU_vente", "Taux_change"]
+                        "PnL réalisé (€/$)", "PnL réalisé (%)", "PRU_vente", "Taux_change"]
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = df[col].astype(str).replace(["", "None", "nan"], "0").str.replace(",", ".", regex=False)
@@ -186,6 +190,17 @@ def save_transactions_to_sheet(df):
     except Exception as e:
         st.error(f"Erreur écriture: {e}")
         return False
+    
+# ---- Rotation : conserver max 5 backups ----
+    try:
+        backups = [w for w in sh.worksheets() if w.title.startswith("backup_")]
+        if len(backups) > 5:
+            backups_sorted = sorted(backups, key=lambda w: w.title, reverse=True)
+            for old in backups_sorted[5:]:
+                sh.del_worksheet(old)
+    except Exception as e:
+        st.warning(f"⚠️ Rotation backup non appliquée : {e}")
+
 
 # -----------------------
 # Fetch prices
@@ -266,6 +281,7 @@ with tab1:
     except:
         ALPHA_VANTAGE_API_KEY = None
     
+    @st.cache_data(ttl=1600)
     def get_alpha_vantage_suggestions(query: str):
         if not ALPHA_VANTAGE_API_KEY or not query or len(query) < 2:
             return []
@@ -330,8 +346,8 @@ with tab1:
             st.error("Prix doit être > 0.0001")
         else:
             df_hist = (st.session_state.df_transactions.copy()
-            if isinstance(st.session_state.df_transactions, pd.DataFrame)
-            else load_transactions_from_sheet())
+                if isinstance(st.session_state.df_transactions, pd.DataFrame)
+                else load_transactions_from_sheet())
 
         if df_hist.empty:
             df_hist = pd.DataFrame(columns=EXPECTED_COLS)
@@ -576,6 +592,13 @@ with tab3:
                     st.dataframe(top5, use_container_width=True, hide_index=True)
                 else:
                     st.info("Aucune position")
+# ---- Séparateur visuel entre profils ----
+            if i < len(profils) - 1:
+                st.markdown(
+                    "<div style='height:3px; background:linear-gradient(to right, #ccc, #888, #ccc); margin:20px 0; border-radius:3px;'></div>",
+                    unsafe_allow_html=True
+                )
+
 
 # -----------------------
 # ONGLET 4 : Calendrier
@@ -668,4 +691,3 @@ with col_currency:
         key="currency_toggle"
     )
     st.session_state.devise_affichage = devise_affichage
-
