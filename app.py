@@ -408,7 +408,7 @@ with tab1:
                         st.info(f"💰 PnL réalisé : {transaction['PnL réalisé (€/$)']:.2f} {devise}")
                     if transaction.get("Taux_change") and transaction["Taux_change"] != 1.0:
                         st.info(f"💱 Taux de change figé : {transaction['Taux_change']:.4f}")
-                    st.session_state.df_transactions = df_new
+                    st.session_state.df_transactions = load_transactions_from_sheet()  # <== recharge propre
                     st.cache_data.clear()
                     st.rerun()
                 else:
