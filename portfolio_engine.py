@@ -431,3 +431,35 @@ class PortfolioEngine:
                 })
         
         return pd.DataFrame(positions)
+    
+    def get_positions_consolide(self) -> pd.DataFrame:
+        """Retourne les positions ouvertes consolidées (tous profils confondus)."""
+        df = self.df.copy()
+        df_actifs = df[df["Ticker"].str.upper() != "CASH"]
+
+        if df_actifs.empty:
+            return pd.DataFrame(columns=["Ticker", "Quantité", "PRU", "Devise"])
+
+        # On regroupe les transactions achat/vente par Ticker et Devise
+        df_trades = df_actifs[df_actifs["Type"].isin(["Achat", "Vente"])].copy()
+        if df_trades.empty:
+            return pd.DataFrame(columns=["Ticker", "Quantité", "PRU", "Devise"])
+
+        df_trades["Sens"] = df_trades["Type"].apply(lambda x: 1 if x == "Achat" else -1)
+        df_trades["Quantité_eff"] = df_trades["Quantité"] * df_trades["Sens"]
+
+        # Calcul du montant investi net
+        df_trades["Montant"] = df_trades["Quantité_eff"] * df_trades["Prix_unitaire"] + df_trades["Frais (€/$)"]
+
+        grouped = df_trades.groupby(["Ticker", "Devise"], as_index=False).agg(
+            Quantité=("Quantité_eff", "sum"),
+            Montant=("Montant", "sum")
+        )
+
+        # Filtrer uniquement les positions encore ouvertes
+        grouped = grouped[grouped["Quantité"] > 0]
+
+        # Calcul du PRU consolidé
+        grouped["PRU"] = grouped["Montant"] / grouped["Quantité"]
+
+        return grouped[["Ticker", "Quantité", "PRU", "Devise"]].round(4)
