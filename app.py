@@ -332,14 +332,40 @@ with tab1:
     
     @st.cache_data(ttl=1600)
     def get_alpha_vantage_suggestions(query: str):
-        if not ALPHA_VANTAGE_API_KEY or not query or len(query) < 2:
+        """Recherche des tickers sur Alpha Vantage, avec cache local + debug."""
+        if not query or len(query.strip()) < 2:
             return []
+
+        if not ALPHA_VANTAGE_API_KEY:
+            st.warning("⚠️ Clé API Alpha Vantage manquante.")
+            return []
+
+    # Cache local pour éviter de rappeler Alpha Vantage inutilement
+        if "suggestion_cache" not in st.session_state:
+            st.session_state.suggestion_cache = {}
+
+        query = query.strip().lower()
+        if query in st.session_state.suggestion_cache:
+            return st.session_state.suggestion_cache[query]
+
         url = "https://www.alphavantage.co/query"
-        params = {"function": "SYMBOL_SEARCH", "keywords": query, "apikey": ALPHA_VANTAGE_API_KEY}
+        params = {
+            "function": "SYMBOL_SEARCH",
+            "keywords": query,
+            "apikey": ALPHA_VANTAGE_API_KEY
+        }
+
         try:
             res = requests.get(url, params=params, timeout=10)
+            res.raise_for_status()
             data = res.json()
             matches = data.get("bestMatches", [])
+
+            if not matches:
+                # 🔍 Ajoute un log temporaire pour diagnostiquer le problème
+                st.info(f"Aucun résultat pour '{query}'. Réponse brute : {data}")
+                return []
+
             suggestions = []
             for m in matches:
                 symbol = m.get("1. symbol", "")
@@ -347,9 +373,14 @@ with tab1:
                 region = m.get("4. region", "")
                 if symbol and name:
                     suggestions.append(f"{symbol} — {name} ({region})")
+
+            st.session_state.suggestion_cache[query] = suggestions[:15]
             return suggestions[:15]
-        except:
+
+        except Exception as e:
+            st.error(f"Erreur Alpha Vantage : {e}")
             return []
+
     
     query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query)
     if st.button("🔎 Rechercher"):
@@ -382,7 +413,7 @@ with tab1:
     devise = st.selectbox("Devise", ["EUR", "USD"], index=0)
     note = st.text_area("Note (optionnel)", "", max_chars=500)
 
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=1600)
     def get_ticker_full_name_from_api(ticker: str):
         """Requête Alpha Vantage pour obtenir le nom complet et la région."""
         if not ALPHA_VANTAGE_API_KEY or not ticker:
@@ -766,3 +797,4 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
+
