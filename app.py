@@ -62,7 +62,6 @@ with col_title:
             else:
                 st.success("✅ Toutes les ventes ont PRU_vente")
 
-
 # ⭐ COLONNES V2.1 MULTI-DEVISES
 EXPECTED_COLS = [
     "Date",
@@ -669,3 +668,4 @@ with col_currency:
         key="currency_toggle"
     )
     st.session_state.devise_affichage = devise_affichage
+
