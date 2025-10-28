@@ -28,6 +28,10 @@ SHEET_NAME = "transactions_dashboard"
 if "devise_affichage" not in st.session_state:
     st.session_state.devise_affichage = "EUR"
 
+# ---- Cache local pour les tickers (nom complet / région)
+if "ticker_cache" not in st.session_state:
+    st.session_state.ticker_cache = {}
+
 # -----------------------
 # Initialisation des états Streamlit
 # -----------------------
@@ -66,12 +70,13 @@ with col_title:
             else:
                 st.success("✅ Toutes les ventes ont PRU_vente")
 
-# ⭐ COLONNES V2.1 MULTI-DEVISES
+# COLONNES V2.1 MULTI-DEVISES
 EXPECTED_COLS = [
     "Date",
     "Profil",
     "Type",
     "Ticker",
+    "Nom complet",
     "Quantité",
     "Prix_unitaire",
     "PRU_vente",
@@ -279,6 +284,7 @@ if "currency_manager" not in st.session_state:
     st.session_state.currency_manager = CurrencyManager()
 
 currency_manager = st.session_state.currency_manager
+
 # -----------------------
 # Changement devise
 # -----------------------
@@ -375,7 +381,40 @@ with tab1:
     
     devise = st.selectbox("Devise", ["EUR", "USD"], index=0)
     note = st.text_area("Note (optionnel)", "", max_chars=500)
-    
+
+    @st.cache_data(ttl=3600)
+    def get_ticker_full_name_from_api(ticker: str):
+        """Requête Alpha Vantage pour obtenir le nom complet et la région."""
+        if not ALPHA_VANTAGE_API_KEY or not ticker:
+            return ticker
+        try:
+            url = "https://www.alphavantage.co/query"
+            params = {"function": "SYMBOL_SEARCH", "keywords": ticker, "apikey": ALPHA_VANTAGE_API_KEY}
+            res = requests.get(url, params=params, timeout=10)
+            data = res.json().get("bestMatches", [])
+            if not data:
+                return ticker
+            m = data[0]
+            name = m.get("2. name", "")
+            region = m.get("4. region", "")
+            return f"{name} ({region})" if name else ticker
+        except Exception:
+            return ticker
+
+    def get_ticker_full_name(ticker: str):
+        """Retourne le nom complet depuis le cache local, ou via API si inconnu."""
+        ticker = ticker.upper().strip()
+        cache = st.session_state.ticker_cache
+
+        if ticker in cache:
+            return cache[ticker]
+
+        # Appel API seulement si pas en cache
+        full_name = get_ticker_full_name_from_api(ticker)
+        cache[ticker] = full_name  # On enregistre la valeur dans le cache local
+        st.session_state.ticker_cache = cache
+        return full_name
+
     if st.button("➕ Ajouter Transaction", type="primary"):
         quantite = parse_float(quantite_input)
         prix = parse_float(prix_input)
@@ -442,6 +481,10 @@ with tab1:
                 )
             
             if transaction:
+                if transaction["Ticker"] != "CASH":
+                    transaction["Nom complet"] = get_ticker_full_name(transaction["Ticker"])
+                else:
+                    transaction["Nom complet"] = "CASH"
                 df_new = pd.concat([df_hist, pd.DataFrame([transaction])], ignore_index=True)
                 ok = save_transactions_to_sheet(df_new)
                 if ok:
@@ -456,7 +499,7 @@ with tab1:
                     st.rerun()
                 else:
                     st.error("Erreur enregistrement")
-    
+
     st.divider()
     st.subheader("📜 Historique des transactions")
     if st.session_state.df_transactions is not None and not st.session_state.df_transactions.empty:
@@ -624,14 +667,15 @@ with tab3:
                 if not positions_profil.empty:
                     fig_profil = px.pie(
                         positions_profil.dropna(subset=["Valeur_convertie"]),
-                        values="Valeur_convertie", names="Ticker",
+                        values="Valeur_convertie", 
+                        names="Nom complet",
                         title=f"Répartition {profil}"
                     )
                     st.plotly_chart(fig_profil, use_container_width=True)
                     
                     st.markdown("**Top 5 positions:**")
-                    top5 = positions_profil.nlargest(5, "Valeur_convertie")[["Ticker", "Quantité", "Valeur_convertie", "PnL_latent"]]
-                    top5.columns = ["Ticker", "Qté", f"Valeur {symbole}", f"PnL {symbole}"]
+                    top5 = positions_profil.nlargest(5, "Valeur_convertie")[["Ticker", "Nom complet", "Quantité", "Valeur_convertie", "PnL_latent"]]
+                    top5.columns = ["Ticker", "Nom complet", "Qté", f"Valeur {symbole}", f"PnL {symbole}"]
                     st.dataframe(top5, use_container_width=True, hide_index=True)
                 else:
                     st.info("Aucune position")
@@ -722,4 +766,3 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-
