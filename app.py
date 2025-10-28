@@ -169,11 +169,13 @@ def save_transactions_to_sheet(df):
         st.error("Tentative de sauvegarde d'un DataFrame vide — opération annulée.")
         return False
     
+    # ---- Formatage des dates ----
     if "Date" in df_out.columns:
         df_out["Date"] = df_out["Date"].apply(
             lambda d: d.strftime("%Y-%m-%d") if pd.notna(d) and isinstance(d, (date, pd.Timestamp)) else (d if d else "")
         )
     
+    # ---- Vérifie que toutes les colonnes attendues existent ----
     for c in EXPECTED_COLS:
         if c not in df_out.columns:
             df_out[c] = ""
@@ -181,29 +183,45 @@ def save_transactions_to_sheet(df):
     values = [EXPECTED_COLS] + df_out[EXPECTED_COLS].fillna("").astype(str).values.tolist()
     
     try:
+        # ---- 🔄 Création du backup avant écrasement ----
         try:
             backup_name = f"backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-            sh.add_worksheet(title=backup_name, rows="1000", cols="20")
-        except:
-            pass
+            old_data = sheet.get_all_values()
+            
+            backup_ws = sh.add_worksheet(
+                title=backup_name,
+                rows=str(len(old_data) + 5),
+                cols=str(len(EXPECTED_COLS))
+            )
+            
+            if old_data:
+                backup_ws.update("A1", old_data, value_input_option="USER_ENTERED")
+            
+            st.info(f"📦 Backup créé : {backup_name}")
         
+        except Exception as e:
+            st.warning(f"⚠️ Backup non créé : {e}")
+        
+        # ---- ✏️ Mise à jour du sheet principal ----
         sheet.clear()
         sheet.update("A1", values, value_input_option="USER_ENTERED")
+        
+        # ---- ♻️ Rotation automatique des backups (max 5) ----
+        try:
+            backups = [w for w in sh.worksheets() if w.title.startswith("backup_")]
+            if len(backups) > 5:
+                backups_sorted = sorted(backups, key=lambda w: w.title, reverse=True)
+                for old in backups_sorted[5:]:
+                    sh.del_worksheet(old)
+                    st.info(f"🗑️ Ancien backup supprimé : {old.title}")
+        except Exception as e:
+            st.warning(f"⚠️ Rotation backup non appliquée : {e}")
+        
         return True
-    except Exception as e:
-        st.error(f"Erreur écriture: {e}")
-        return False
     
-# ---- Rotation : conserver max 5 backups ----
-    try:
-        backups = [w for w in sh.worksheets() if w.title.startswith("backup_")]
-        if len(backups) > 5:
-            backups_sorted = sorted(backups, key=lambda w: w.title, reverse=True)
-            for old in backups_sorted[5:]:
-                sh.del_worksheet(old)
     except Exception as e:
-        st.warning(f"⚠️ Rotation backup non appliquée : {e}")
-
+        st.error(f"Erreur écriture : {e}")
+        return False
 
 # -----------------------
 # Fetch prices
