@@ -381,17 +381,11 @@ with tab1:
             st.error(f"Erreur Alpha Vantage : {e}")
             return []
 
-    # --- Barre de recherche alignée horizontalement ---
     col_rech1, col_rech2 = st.columns([4, 1])
     with col_rech1:
-        query = st.text_input(
-            "Entrez un nom ou ticker :",
-            value=st.session_state.ticker_query,
-            label_visibility="collapsed",  # cache le label pour un meilleur alignement
-            placeholder="Ex: AAPL, Tesla..."
-        )
+        query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query, label_visibility="collapsed",  # cache le label pour un meilleur alignement
+        placeholder="Ex: AAPL, Tesla...")
     with col_rech2:
-        st.write("")  # espace vertical pour aligner le bouton
         if st.button("🔎 Rechercher", use_container_width=True):
             st.session_state.ticker_query = query
             if query:
@@ -806,5 +800,4 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-
 
