@@ -381,15 +381,17 @@ with tab1:
             st.error(f"Erreur Alpha Vantage : {e}")
             return []
 
-    
-    query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query)
-    if st.button("🔎 Rechercher"):
-        st.session_state.ticker_query = query
-        if query:
-            st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(query)
-            if not st.session_state.ticker_suggestions:
-                st.warning("Aucun résultat")
-    
+    col_rech1, col_rech2 = st.columns([4, 1])
+    with col_rech1:
+        query = st.text_input("Entrez un nom ou ticker :", value=st.session_state.ticker_query)
+    with col_rech2:
+        if st.button("🔎 Rechercher", use_container_width=True):
+            st.session_state.ticker_query = query
+            if query:
+                st.session_state.ticker_suggestions = get_alpha_vantage_suggestions(query)
+                if not st.session_state.ticker_suggestions:
+                    st.warning("Aucun résultat")
+
     if st.session_state.ticker_suggestions:
         sel = st.selectbox("Résultats :", st.session_state.ticker_suggestions, key="ticker_selectbox")
         if sel:
