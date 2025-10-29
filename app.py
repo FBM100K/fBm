@@ -461,7 +461,6 @@ with tab1:
         elif prix <= 0.0001 and type_tx not in ["Dépôt", "Retrait"]:
             st.error("Prix doit être > 0.0001")
         else:
-            # 🔧 Correction ici
             if isinstance(st.session_state.df_transactions, pd.DataFrame) and not st.session_state.df_transactions.empty:
                 df_hist = st.session_state.df_transactions.copy()
             else:
@@ -588,7 +587,18 @@ with tab2:
             
             positions["PnL_latent"] = (positions["Prix_actuel"] - positions["PRU"]) * positions["Quantité"]
             positions["PnL_latent_%"] = ((positions["Prix_actuel"] - positions["PRU"]) / positions["PRU"] * 100).round(2)
-            
+            # 🔹 Ajout du PnL latent formaté avec symbole et conversion
+            positions["PnL_latent_converti"] = positions.apply(
+                lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
+                if row["Devise"] != devise_affichage else row["PnL_latent"],
+                axis=1
+            )
+            positions["PnL_latent_display"] = positions.apply(
+                lambda row: f"{row['PnL_latent']:,.2f} {row['Devise']}" +
+                        (f" ({row['PnL_latent_converti']:,.2f} {symbole})" if row['Devise'] != devise_affichage else ""),
+                axis=1
+            )
+
             positions["Valeur_display"] = positions.apply(
                 lambda row: f"{row['Valeur_origine']:,.2f} {row['Devise']}" +
                            (f" ({row['Valeur_convertie']:,.2f} {symbole})" if row['Devise'] != devise_affichage else ""),
@@ -610,9 +620,9 @@ with tab2:
         
         if not positions.empty:
             st.subheader("Positions ouvertes")
-            cols_display = ["Ticker","Nom complet", "Quantité", "PRU", "Devise", "Prix_actuel", "Valeur_display", "PnL_latent", "PnL_latent_%"]
+            cols_display = ["Ticker","Nom complet", "Quantité", "PRU", "Devise", "Prix_actuel", "Valeur_display", "PnL_latent_display", "PnL_latent_%"]
             display_positions = positions[[c for c in cols_display if c in positions.columns]].copy()
-            display_positions.columns = ["Ticker", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
+            display_positions.columns = ["Ticker", "Nom complet", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
             display_positions = display_positions.sort_values("PnL €/$", ascending=False)
             st.dataframe(display_positions, use_container_width=True, hide_index=True)
             
@@ -681,7 +691,20 @@ with tab3:
                         axis=1
                     )
                     positions_profil["PnL_latent"] = (positions_profil["Prix_actuel"] - positions_profil["PRU"]) * positions_profil["Quantité"]
-                    
+                    positions_profil["PnL_latent_%"] = ((positions_profil["Prix_actuel"] - positions_profil["PRU"]) / positions_profil["PRU"] * 100).round(2)
+                    # 🔹 Ajout du PnL latent formaté avec symbole et conversion
+                    positions_profil["PnL_latent_converti"] = positions_profil.apply(
+                        lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
+                        if row["Devise"] != devise_affichage else row["PnL_latent"],
+                        axis=1
+                    )
+
+                    positions_profil["PnL_latent_display"] = positions_profil.apply(
+                        lambda row: f"{row['PnL_latent']:,.2f} {row['Devise']}" +
+                                (f" ({row['PnL_latent_converti']:,.2f} {symbole})" if row['Devise'] != devise_affichage else ""),
+                        axis=1
+                    )
+
                     total_valeur_profil = positions_profil["Valeur_convertie"].sum()
                     total_pnl_latent_profil = positions_profil["PnL_latent"].sum()
                 else:
