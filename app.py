@@ -606,7 +606,7 @@ with tab2:
             )
             
             total_valeur = positions["Valeur_convertie"].sum()
-            total_pnl_latent = positions["PnL_latent_converti"].sum()
+            total_pnl_latent = positions["PnL_latent"].sum()
         else:
             total_valeur = 0.0
             total_pnl_latent = 0.0
