@@ -606,7 +606,7 @@ with tab2:
             )
             
             total_valeur = positions["Valeur_convertie"].sum()
-            total_pnl_latent = positions["PnL_latent"].sum()
+            total_pnl_latent = positions["PnL_latent_convertie"].sum()
         else:
             total_valeur = 0.0
             total_pnl_latent = 0.0
@@ -823,3 +823,4 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
+
