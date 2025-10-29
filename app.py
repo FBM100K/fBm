@@ -691,7 +691,6 @@ with tab3:
                         axis=1
                     )
                     positions_profil["PnL_latent"] = (positions_profil["Prix_actuel"] - positions_profil["PRU"]) * positions_profil["Quantité"]
-                    positions_profil["PnL_latent_%"] = ((positions_profil["Prix_actuel"] - positions_profil["PRU"]) / positions_profil["PRU"] * 100).round(2)
                     # 🔹 Ajout du PnL latent formaté avec symbole et conversion
                     positions_profil["PnL_latent_converti"] = positions_profil.apply(
                         lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
@@ -824,4 +823,3 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption("© 2025 FBM Fintech - Dashboard Portefeuille V2.1 | Multi-devises EUR/USD | Données temps réel via yfinance")
-
