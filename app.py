@@ -626,6 +626,9 @@ with tab2:
                 "Ticker", "Nom complet", "Quantité", "PRU", "Devise",
                 "Prix_actuel", "Valeur_display", "PnL_latent_display", "PnL_latent_%"
             ]
+            st.write("Colonnes actuelles :", display_positions.columns.tolist())
+            st.write("Nombre de colonnes :", len(display_positions.columns))
+
             display_positions = positions[[c for c in cols_display if c in positions.columns]].copy()
             display_positions.columns = ["Ticker", "Nom complet", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
             display_positions = display_positions.sort_values("PnL €/$", ascending=False, key=lambda s: s.astype(str))
