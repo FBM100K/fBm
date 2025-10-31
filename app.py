@@ -618,33 +618,62 @@ with tab2:
         k5.metric("✅ PnL Réalisé", f"{summary['pnl_realise_total']:,.2f} {symbole}")
         
         st.divider()
-        
+
         if not positions.empty:
             st.subheader("Positions ouvertes")
-            # ✅ Correction ici : on filtre exactement les colonnes nécessaires avant le renommage
+
+            # ✅ On définit les colonnes à afficher
             cols_display = [
                 "Ticker", "Nom complet", "Quantité", "PRU", "Devise",
                 "Prix_actuel", "Valeur_display", "PnL_latent_display", "PnL_latent_%"
             ]
-            st.write("Colonnes actuelles :", display_positions.columns.tolist())
+
+            # ✅ Création sécurisée du DataFrame avant toute manipulation
+            display_positions = positions[[c for c in cols_display if c in positions.columns]].copy()
+
+            # 🧪 Debug utile (tu peux les retirer après vérif)
+            st.write("Colonnes présentes :", positions.columns.tolist())
+            st.write("Colonnes utilisées :", display_positions.columns.tolist())
             st.write("Nombre de colonnes :", len(display_positions.columns))
 
-            display_positions = positions[[c for c in cols_display if c in positions.columns]].copy()
-            display_positions.columns = ["Ticker", "Nom complet", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
-            display_positions = display_positions.sort_values("PnL €/$", ascending=False, key=lambda s: s.astype(str))
+            # ✅ Vérification du bon nombre de colonnes avant renommage
+            if len(display_positions.columns) == 9:
+                display_positions.columns = [
+                    "Ticker", "Nom complet", "Qté", "PRU", "Dev",
+                    "Prix actuel", "Valeur", "PnL €/$", "PnL %"
+                ]
+            else:
+                st.warning(f"⚠️ Nombre de colonnes inattendu ({len(display_positions.columns)}). Vérifie les colonnes disponibles.")
+                st.dataframe(display_positions, use_container_width=True, hide_index=True)
+
+            # ✅ Tri et affichage du tableau
+            display_positions = display_positions.sort_values(
+                "PnL €/$", ascending=False, key=lambda s: s.astype(str)
+            )
             st.dataframe(display_positions, use_container_width=True, hide_index=True)
-            
-            fig = px.pie(positions.dropna(subset=["Valeur_convertie"]), values="Valeur_convertie", names="Ticker",
-                        title=f"Répartition du portefeuille ({devise_affichage})")
+
+            # ✅ Graphique répartition
+            fig = px.pie(
+                positions.dropna(subset=["Valeur_convertie"]),
+                values="Valeur_convertie",
+                names="Ticker",
+                title=f"Répartition du portefeuille ({devise_affichage})"
+            )
             st.plotly_chart(fig, use_container_width=True)
-            
-            fig2 = px.bar(positions.dropna(subset=["PnL_latent_converti"]), x="Ticker", y="PnL_latent_converti",
-                         title="PnL Latent par position", color="PnL_latent_converti",
-                         color_continuous_scale=["red", "gray", "green"])
+
+            # ✅ Graphique PnL
+            fig2 = px.bar(
+                positions.dropna(subset=["PnL_latent_converti"]),
+                x="Ticker", y="PnL_latent_converti",
+                title="PnL Latent par position",
+                color="PnL_latent_converti",
+                color_continuous_scale=["red", "gray", "green"]
+            )
             st.plotly_chart(fig2, use_container_width=True)
+
         else:
             st.info("Aucune position ouverte")
-        
+
         df_ventes = st.session_state.df_transactions[st.session_state.df_transactions["Type"] == "Vente"].copy()
         
         if not df_ventes.empty:
@@ -680,7 +709,9 @@ with tab3:
             with cols[i]:
                 st.subheader(f"{profil}")
                 
-                df_profil = st.session_state.df_transactions[st.session_state.df_transactions["Profil"] == profil]
+                df_profil = st.session_state.df_transactions[
+                    st.session_state.df_transactions["Profil"] == profil
+                ]
                 
                 engine_profil = PortfolioEngine(df_profil)
                 summary_profil = engine_profil.get_portfolio_summary_converted(
@@ -698,15 +729,18 @@ with tab3:
                         if row["Devise"] != devise_affichage and row["Prix_actuel"] else row["Valeur_origine"],
                         axis=1
                     )
-                    positions_profil["PnL_latent"] = (positions_profil["Prix_actuel"] - positions_profil["PRU"]) * positions_profil["Quantité"]
+                    positions_profil["PnL_latent"] = (
+                        positions_profil["Prix_actuel"] - positions_profil["PRU"]
+                    ) * positions_profil["Quantité"]
                     positions_profil["PnL_latent_converti"] = positions_profil.apply(
                         lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
                         if row["Devise"] != devise_affichage else row["PnL_latent"],
                         axis=1
                     )
                     positions_profil["PnL_latent_display"] = positions_profil.apply(
-                        lambda row: f"{row['PnL_latent']:,.2f} {row['Devise']}" +
-                                (f" ({row['PnL_latent_converti']:,.2f} {symbole})" if row['Devise'] != devise_affichage else ""),
+                        lambda row: f"{row['PnL_latent']:,.2f} {row['Devise']}"
+                        + (f" ({row['PnL_latent_converti']:,.2f} {symbole})"
+                           if row["Devise"] != devise_affichage else ""),
                         axis=1
                     )
 
@@ -716,6 +750,7 @@ with tab3:
                     total_valeur_profil = 0.0
                     total_pnl_latent_profil = 0.0
                 
+                # 🔹 Mise en page des indicateurs
                 row1_col1, row1_col2 = st.columns(2)
                 row2_col1, row2_col2 = st.columns(2)
                 row3_col1, row3_col2 = st.columns(2)
@@ -727,7 +762,38 @@ with tab3:
                 row3_col1.metric("✅ PnL Réalisé", f"{summary_profil['pnl_realise_total']:,.0f} {symbole}")
                 row3_col2.metric("💎 Total", f"{summary_profil['cash'] + total_valeur_profil:,.0f} {symbole}")
                 
+                # ✅ Tableau des positions (avec vérif colonnes)
                 if not positions_profil.empty:
+                    cols_display = [
+                        "Ticker", "Nom complet", "Quantité", "PRU", "Devise",
+                        "Prix_actuel", "Valeur_convertie", "PnL_latent_converti"
+                    ]
+                    display_positions_profil = positions_profil[
+                        [c for c in cols_display if c in positions_profil.columns]
+                    ].copy()
+
+                    # Debug — à retirer une fois validé
+                    st.write("Colonnes présentes :", positions_profil.columns.tolist())
+                    st.write("Colonnes utilisées :", display_positions_profil.columns.tolist())
+                    st.write("Nombre de colonnes :", len(display_positions_profil.columns))
+
+                    if len(display_positions_profil.columns) == 8:
+                        display_positions_profil.columns = [
+                            "Ticker", "Nom complet", "Qté", "PRU", "Dev",
+                            "Prix actuel", f"Valeur {symbole}", f"PnL {symbole}"
+                        ]
+                    else:
+                        st.warning(
+                            f"⚠️ Nombre de colonnes inattendu ({len(display_positions_profil.columns)}). "
+                            "Vérifie les noms disponibles."
+                        )
+
+                    display_positions_profil = display_positions_profil.sort_values(
+                        f"PnL {symbole}", ascending=False, key=lambda s: s.astype(str)
+                    )
+                    st.dataframe(display_positions_profil, use_container_width=True, hide_index=True)
+
+                    # ✅ Graphique de répartition
                     fig_profil = px.pie(
                         positions_profil.dropna(subset=["Valeur_convertie"]),
                         values="Valeur_convertie", 
@@ -744,6 +810,7 @@ with tab3:
                     st.dataframe(top5, use_container_width=True, hide_index=True)
                 else:
                     st.info("Aucune position")
+            
             # ---- Séparateur visuel entre profils ----
             if i < len(profils) - 1:
                 st.markdown(
