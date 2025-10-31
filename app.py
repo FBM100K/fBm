@@ -695,127 +695,154 @@ with tab2:
 # -----------------------
 with tab3:
     st.header("📊 Répartition portefeuilles individuels")
-    
+
     if st.session_state.df_transactions is None or st.session_state.df_transactions.empty:
         st.info("Aucune transaction")
     else:
         devise_affichage = st.session_state.devise_affichage
         symbole = "€" if devise_affichage == "EUR" else "$"
-        
         profils = sorted(st.session_state.df_transactions["Profil"].unique())
         cols = st.columns(len(profils))
-        
+
         for i, profil in enumerate(profils):
             with cols[i]:
                 st.subheader(f"{profil}")
-                
+
                 df_profil = st.session_state.df_transactions[
                     st.session_state.df_transactions["Profil"] == profil
                 ]
-                
+
                 engine_profil = PortfolioEngine(df_profil)
                 summary_profil = engine_profil.get_portfolio_summary_converted(
                     profil=profil, target_currency=devise_affichage, currency_manager=currency_manager
                 )
                 positions_profil = engine_profil.get_positions(profil=profil)
-                
+
                 if not positions_profil.empty:
+                    # --- Calculs des valorisations et PnL
                     tickers_profil = positions_profil["Ticker"].tolist()
                     prices_profil = fetch_last_close_batch(tickers_profil)
                     positions_profil["Prix_actuel"] = positions_profil["Ticker"].map(prices_profil)
-                    positions_profil["Valeur_origine"] = positions_profil["Quantité"] * positions_profil["Prix_actuel"]
+
+                    positions_profil["Valeur_origine"] = (
+                        positions_profil["Quantité"] * positions_profil["Prix_actuel"]
+                    )
+
                     positions_profil["Valeur_convertie"] = positions_profil.apply(
-                        lambda row: currency_manager.convert(row["Valeur_origine"], row["Devise"], devise_affichage)
-                        if row["Devise"] != devise_affichage and row["Prix_actuel"] else row["Valeur_origine"],
-                        axis=1
+                        lambda row: currency_manager.convert(
+                            row["Valeur_origine"], row["Devise"], devise_affichage
+                        )
+                        if row["Devise"] != devise_affichage and row["Prix_actuel"]
+                        else row["Valeur_origine"],
+                        axis=1,
                     )
+
                     positions_profil["PnL_latent"] = (
-                        positions_profil["Prix_actuel"] - positions_profil["PRU"]
-                    ) * positions_profil["Quantité"]
-                    positions_profil["PnL_latent_converti"] = positions_profil.apply(
-                        lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
-                        if row["Devise"] != devise_affichage else row["PnL_latent"],
-                        axis=1
+                        (positions_profil["Prix_actuel"] - positions_profil["PRU"])
+                        * positions_profil["Quantité"]
                     )
+
+                    positions_profil["PnL_latent_converti"] = positions_profil.apply(
+                        lambda row: currency_manager.convert(
+                            row["PnL_latent"], row["Devise"], devise_affichage
+                        )
+                        if row["Devise"] != devise_affichage
+                        else row["PnL_latent"],
+                        axis=1,
+                    )
+
                     positions_profil["PnL_latent_display"] = positions_profil.apply(
                         lambda row: f"{row['PnL_latent']:,.2f} {row['Devise']}"
-                        + (f" ({row['PnL_latent_converti']:,.2f} {symbole})"
-                           if row["Devise"] != devise_affichage else ""),
-                        axis=1
+                        + (
+                            f" ({row['PnL_latent_converti']:,.2f} {symbole})"
+                            if row["Devise"] != devise_affichage
+                            else ""
+                        ),
+                        axis=1,
+                    )
+
+                    positions_profil["Valeur_display"] = positions_profil.apply(
+                        lambda row: f"{row['Valeur_origine']:,.2f} {row['Devise']}"
+                        + (
+                            f" ({row['Valeur_convertie']:,.2f} {symbole})"
+                            if row["Devise"] != devise_affichage
+                            else ""
+                        ),
+                        axis=1,
                     )
 
                     total_valeur_profil = positions_profil["Valeur_convertie"].sum()
-                    total_pnl_latent_profil = positions_profil["PnL_latent_converti"].sum()  # ✅ version convertie
+                    total_pnl_latent_profil = positions_profil["PnL_latent_converti"].sum()
                 else:
                     total_valeur_profil = 0.0
                     total_pnl_latent_profil = 0.0
-                
-                # 🔹 Mise en page des indicateurs
+
+                # --- Bloc KPI
                 row1_col1, row1_col2 = st.columns(2)
                 row2_col1, row2_col2 = st.columns(2)
                 row3_col1, row3_col2 = st.columns(2)
-                
+
                 row1_col1.metric("💵 Dépôts", f"{summary_profil['total_depots']:,.0f} {symbole}")
                 row1_col2.metric("💰 Liquidités", f"{summary_profil['cash']:,.0f} {symbole}")
                 row2_col1.metric("📊 Valeur actifs", f"{total_valeur_profil:,.0f} {symbole}")
                 row2_col2.metric("📈 PnL Latent", f"{total_pnl_latent_profil:,.0f} {symbole}")
                 row3_col1.metric("✅ PnL Réalisé", f"{summary_profil['pnl_realise_total']:,.0f} {symbole}")
                 row3_col2.metric("💎 Total", f"{summary_profil['cash'] + total_valeur_profil:,.0f} {symbole}")
-                
-                # ✅ Tableau des positions (avec vérif colonnes)
+
+                # --- Affichage tableau et graphiques
+                st.divider()
                 if not positions_profil.empty:
+                    # ✅ Colonnes d'affichage harmonisées avec l’onglet 2
                     cols_display = [
                         "Ticker", "Nom complet", "Quantité", "PRU", "Devise",
-                        "Prix_actuel", "Valeur_convertie", "PnL_latent_converti"
+                        "Prix_actuel", "Valeur_display", "PnL_latent_display", "PnL_latent_%"
                     ]
-                    display_positions_profil = positions_profil[
+
+                    # Sécurité : filtrer seulement les colonnes présentes
+                    display_positions = positions_profil[
                         [c for c in cols_display if c in positions_profil.columns]
                     ].copy()
 
-                    # Debug — à retirer une fois validé
-                    st.write("Colonnes présentes :", positions_profil.columns.tolist())
-                    st.write("Colonnes utilisées :", display_positions_profil.columns.tolist())
-                    st.write("Nombre de colonnes :", len(display_positions_profil.columns))
+                    # Renommage harmonisé
+                    display_positions.columns = [
+                        "Ticker", "Nom complet", "Qté", "PRU", "Dev",
+                        "Prix actuel", "Valeur", "PnL €/$", "PnL %"
+                    ][:len(display_positions.columns)]
 
-                    if len(display_positions_profil.columns) == 8:
-                        display_positions_profil.columns = [
-                            "Ticker", "Nom complet", "Qté", "PRU", "Dev",
-                            "Prix actuel", f"Valeur {symbole}", f"PnL {symbole}"
-                        ]
-                    else:
-                        st.warning(
-                            f"⚠️ Nombre de colonnes inattendu ({len(display_positions_profil.columns)}). "
-                            "Vérifie les noms disponibles."
+                    # Tri par PnL
+                    if "PnL €/$" in display_positions.columns:
+                        display_positions = display_positions.sort_values(
+                            "PnL €/$", ascending=False, key=lambda s: s.astype(str)
                         )
 
-                    display_positions_profil = display_positions_profil.sort_values(
-                        f"PnL {symbole}", ascending=False, key=lambda s: s.astype(str)
-                    )
-                    st.dataframe(display_positions_profil, use_container_width=True, hide_index=True)
+                    st.dataframe(display_positions, use_container_width=True, hide_index=True)
 
-                    # ✅ Graphique de répartition
+                    # Graphiques
                     fig_profil = px.pie(
                         positions_profil.dropna(subset=["Valeur_convertie"]),
-                        values="Valeur_convertie", 
+                        values="Valeur_convertie",
                         names="Nom complet",
-                        title=f"Répartition {profil}"
+                        title=f"Répartition du portefeuille {profil} ({devise_affichage})",
                     )
                     st.plotly_chart(fig_profil, use_container_width=True)
-                    
-                    st.markdown("**Top 5 positions:**")
-                    top5 = positions_profil.nlargest(5, "Valeur_convertie")[
-                        ["Ticker", "Nom complet", "Quantité", "Valeur_convertie", "PnL_latent_converti"]
-                    ]
-                    top5.columns = ["Ticker", "Nom complet", "Qté", f"Valeur {symbole}", f"PnL {symbole}"]
-                    st.dataframe(top5, use_container_width=True, hide_index=True)
+
+                    fig_pnl = px.bar(
+                        positions_profil.dropna(subset=["PnL_latent_converti"]),
+                        x="Ticker",
+                        y="PnL_latent_converti",
+                        title=f"PnL Latent par position - {profil}",
+                        color="PnL_latent_converti",
+                        color_continuous_scale=["red", "gray", "green"],
+                    )
+                    st.plotly_chart(fig_pnl, use_container_width=True)
                 else:
-                    st.info("Aucune position")
-            
-            # ---- Séparateur visuel entre profils ----
+                    st.info("Aucune position ouverte")
+
+            # --- Séparateur visuel entre profils
             if i < len(profils) - 1:
                 st.markdown(
                     "<div style='height:3px; background:linear-gradient(to right, #ccc, #888, #ccc); margin:20px 0; border-radius:3px;'></div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
 # -----------------------
