@@ -587,6 +587,7 @@ with tab2:
             
             positions["PnL_latent"] = (positions["Prix_actuel"] - positions["PRU"]) * positions["Quantité"]
             positions["PnL_latent_%"] = ((positions["Prix_actuel"] - positions["PRU"]) / positions["PRU"] * 100).round(2)
+
             # 🔹 Ajout du PnL latent formaté avec symbole et conversion
             positions["PnL_latent_converti"] = positions.apply(
                 lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
@@ -606,7 +607,7 @@ with tab2:
             )
             
             total_valeur = positions["Valeur_convertie"].sum()
-            total_pnl_latent = positions["PnL_latent"].sum()
+            total_pnl_latent = positions["PnL_latent_converti"].sum()  # ✅ corrige : prend la version convertie
         else:
             total_valeur = 0.0
             total_pnl_latent = 0.0
@@ -620,18 +621,22 @@ with tab2:
         
         if not positions.empty:
             st.subheader("Positions ouvertes")
-            cols_display = ["Ticker","Nom complet", "Quantité", "PRU", "Devise", "Prix_actuel", "Valeur_display", "PnL_latent_display", "PnL_latent_%"]
+            # ✅ Correction ici : on filtre exactement les colonnes nécessaires avant le renommage
+            cols_display = [
+                "Ticker", "Nom complet", "Quantité", "PRU", "Devise",
+                "Prix_actuel", "Valeur_display", "PnL_latent_display", "PnL_latent_%"
+            ]
             display_positions = positions[[c for c in cols_display if c in positions.columns]].copy()
             display_positions.columns = ["Ticker", "Nom complet", "Qté", "PRU", "Dev", "Prix actuel", "Valeur", "PnL €/$", "PnL %"]
-            display_positions = display_positions.sort_values("PnL €/$", ascending=False)
+            display_positions = display_positions.sort_values("PnL €/$", ascending=False, key=lambda s: s.astype(str))
             st.dataframe(display_positions, use_container_width=True, hide_index=True)
             
             fig = px.pie(positions.dropna(subset=["Valeur_convertie"]), values="Valeur_convertie", names="Ticker",
                         title=f"Répartition du portefeuille ({devise_affichage})")
             st.plotly_chart(fig, use_container_width=True)
             
-            fig2 = px.bar(positions.dropna(subset=["PnL_latent"]), x="Ticker", y="PnL_latent",
-                         title="PnL Latent par position", color="PnL_latent",
+            fig2 = px.bar(positions.dropna(subset=["PnL_latent_converti"]), x="Ticker", y="PnL_latent_converti",
+                         title="PnL Latent par position", color="PnL_latent_converti",
                          color_continuous_scale=["red", "gray", "green"])
             st.plotly_chart(fig2, use_container_width=True)
         else:
@@ -691,13 +696,11 @@ with tab3:
                         axis=1
                     )
                     positions_profil["PnL_latent"] = (positions_profil["Prix_actuel"] - positions_profil["PRU"]) * positions_profil["Quantité"]
-                    # 🔹 Ajout du PnL latent formaté avec symbole et conversion
                     positions_profil["PnL_latent_converti"] = positions_profil.apply(
                         lambda row: currency_manager.convert(row["PnL_latent"], row["Devise"], devise_affichage)
                         if row["Devise"] != devise_affichage else row["PnL_latent"],
                         axis=1
                     )
-
                     positions_profil["PnL_latent_display"] = positions_profil.apply(
                         lambda row: f"{row['PnL_latent']:,.2f} {row['Devise']}" +
                                 (f" ({row['PnL_latent_converti']:,.2f} {symbole})" if row['Devise'] != devise_affichage else ""),
@@ -705,7 +708,7 @@ with tab3:
                     )
 
                     total_valeur_profil = positions_profil["Valeur_convertie"].sum()
-                    total_pnl_latent_profil = positions_profil["PnL_latent"].sum()
+                    total_pnl_latent_profil = positions_profil["PnL_latent_converti"].sum()  # ✅ version convertie
                 else:
                     total_valeur_profil = 0.0
                     total_pnl_latent_profil = 0.0
@@ -731,18 +734,19 @@ with tab3:
                     st.plotly_chart(fig_profil, use_container_width=True)
                     
                     st.markdown("**Top 5 positions:**")
-                    top5 = positions_profil.nlargest(5, "Valeur_convertie")[["Ticker", "Nom complet", "Quantité", "Valeur_convertie", "PnL_latent"]]
+                    top5 = positions_profil.nlargest(5, "Valeur_convertie")[
+                        ["Ticker", "Nom complet", "Quantité", "Valeur_convertie", "PnL_latent_converti"]
+                    ]
                     top5.columns = ["Ticker", "Nom complet", "Qté", f"Valeur {symbole}", f"PnL {symbole}"]
                     st.dataframe(top5, use_container_width=True, hide_index=True)
                 else:
                     st.info("Aucune position")
-# ---- Séparateur visuel entre profils ----
+            # ---- Séparateur visuel entre profils ----
             if i < len(profils) - 1:
                 st.markdown(
                     "<div style='height:3px; background:linear-gradient(to right, #ccc, #888, #ccc); margin:20px 0; border-radius:3px;'></div>",
                     unsafe_allow_html=True
                 )
-
 
 # -----------------------
 # ONGLET 4 : Calendrier
