@@ -1,6 +1,9 @@
 """
-Portfolio Engine V2.1 - Module de calculs financiers avec multi-devises
-Gère PRU avec frais, PRU_vente figé, taux de change figés, et validations
+Portfolio Engine V3.0 - Module de calculs financiers avec multi-devises
+✅ Corrections V3:
+- get_positions_consolide() avec nom complet
+- Calcul PRU consolidé corrigé (avec frais)
+- Harmonisation retours DataFrame
 """
 
 import pandas as pd
@@ -34,12 +37,19 @@ class PortfolioEngine:
                 self.df[col] = self.df[col].fillna("").astype(str)
     
     def calculate_pru(self, ticker: str, profil: str = None, date_limite: Optional[datetime] = None) -> float:
-        """Calcule le PRU global (tous profils confondus)."""
+        """
+        Calcule le PRU avec frais pour un ticker donné.
+        Si profil=None, calcul global (tous profils confondus).
+        """
         mask = (
             (self.df["Ticker"] == ticker) &
             (self.df["Type"] == "Achat") &
             (self.df["Quantité"] > 0)
         )
+        
+        if profil is not None:
+            mask &= (self.df["Profil"] == profil)
+        
         if date_limite is not None:
             mask &= (self.df["Date"] < date_limite)
 
@@ -59,11 +69,18 @@ class PortfolioEngine:
         return round(pru, 6)
     
     def get_position_quantity(self, ticker: str, profil: str = None, date_limite: Optional[datetime] = None) -> float:
-        """Retourne la quantité totale (tous profils confondus)."""
+        """
+        Retourne la quantité nette détenue pour un ticker.
+        Si profil=None, calcul global (tous profils confondus).
+        """
         mask = (
             (self.df["Ticker"] == ticker) &
             (self.df["Type"].isin(["Achat", "Vente"]))
         )
+        
+        if profil is not None:
+            mask &= (self.df["Profil"] == profil)
+        
         if date_limite is not None:
             mask &= (self.df["Date"] < date_limite)
 
@@ -98,11 +115,11 @@ class PortfolioEngine:
         return True, ""
     
     def validate_sale(self, ticker: str, profil: str, quantite_vente: float, date_vente: datetime) -> Tuple[bool, str]:
-        """Valide qu'une vente est possible (quantité globale)."""
-        qty_disponible = self.get_position_quantity(ticker, None, date_vente)
+        """Valide qu'une vente est possible (quantité disponible pour le profil)."""
+        qty_disponible = self.get_position_quantity(ticker, profil, date_vente)
 
         if qty_disponible < quantite_vente:
-            return False, f"❌ Quantité insuffisante (globale). Disponible: {qty_disponible:.6f}, Demandé: {quantite_vente:.6f}"
+            return False, f"❌ Quantité insuffisante pour {profil}. Disponible: {qty_disponible:.6f}, Demandé: {quantite_vente:.6f}"
 
         if quantite_vente <= 0:
             return False, "❌ La quantité de vente doit être > 0"
@@ -401,7 +418,10 @@ class PortfolioEngine:
         }
     
     def get_positions(self, profil: Optional[str] = None) -> pd.DataFrame:
-        """Retourne les positions ouvertes avec PRU."""
+        """
+        Retourne les positions ouvertes avec PRU pour un profil spécifique.
+        Format: Ticker, Nom complet, Profil, Quantité, PRU, Devise
+        """
         df = self.df.copy()
         if profil:
             df = df[df["Profil"] == profil]
@@ -409,15 +429,15 @@ class PortfolioEngine:
         df_actifs = df[df["Ticker"].str.upper() != "CASH"]
         
         if df_actifs.empty:
-            return pd.DataFrame(columns=["Ticker", "Profil", "Quantité", "PRU", "Devise"])
+            return pd.DataFrame(columns=["Ticker", "Nom complet", "Profil", "Quantité", "PRU", "Devise"])
         
         positions = []
         for (ticker, prof), group in df_actifs.groupby(["Ticker", "Profil"]):
             qty = group["Quantité"].sum()
-            if qty != 0:
+            if qty > 0:  # Uniquement positions ouvertes
                 pru = self.calculate_pru(ticker, prof)
                 devise_position = group.iloc[0]["Devise"]
-                nom_complet = group.iloc[0]["Nom complet"] if "Nom complet" in group.columns else ticker
+                nom_complet = group.iloc[0].get("Nom complet", ticker)
                 positions.append({
                     "Ticker": ticker,
                     "Nom complet": nom_complet,
@@ -426,36 +446,54 @@ class PortfolioEngine:
                     "PRU": round(pru, 6),
                     "Devise": devise_position
                 })
+        
         return pd.DataFrame(positions)
     
     def get_positions_consolide(self) -> pd.DataFrame:
-        """Retourne les positions ouvertes consolidées (tous profils confondus)."""
+        """
+        ✅ V3.0 - Retourne les positions consolidées (tous profils confondus).
+        CORRECTIONS:
+        - Ajout colonne "Nom complet"
+        - Calcul PRU correct avec frais
+        - Gestion devise unique par ticker
+        
+        Format: Ticker, Nom complet, Quantité, PRU, Devise
+        """
         df = self.df.copy()
         df_actifs = df[df["Ticker"].str.upper() != "CASH"]
 
         if df_actifs.empty:
-            return pd.DataFrame(columns=["Ticker", "Quantité", "PRU", "Devise"])
+            return pd.DataFrame(columns=["Ticker", "Nom complet", "Quantité", "PRU", "Devise"])
 
-        # On regroupe les transactions achat/vente par Ticker et Devise
-        df_trades = df_actifs[df_actifs["Type"].isin(["Achat", "Vente"])].copy()
-        if df_trades.empty:
-            return pd.DataFrame(columns=["Ticker", "Quantité", "PRU", "Devise"])
-
-        df_trades["Sens"] = df_trades["Type"].apply(lambda x: 1 if x == "Achat" else -1)
-        df_trades["Quantité_eff"] = df_trades["Quantité"] * df_trades["Sens"]
-
-        # Calcul du montant investi net
-        df_trades["Montant"] = df_trades["Quantité_eff"] * df_trades["Prix_unitaire"] + df_trades["Frais (€/$)"]
-
-        grouped = df_trades.groupby(["Ticker", "Devise"], as_index=False).agg(
-            Quantité=("Quantité_eff", "sum"),
-            Montant=("Montant", "sum")
-        )
-
-        # Filtrer uniquement les positions encore ouvertes
-        grouped = grouped[grouped["Quantité"] > 0]
-
-        # Calcul du PRU consolidé
-        grouped["PRU"] = grouped["Montant"] / grouped["Quantité"]
-
-        return grouped[["Ticker", "Quantité", "PRU", "Devise"]].round(4)
+        # Groupement par Ticker (on suppose devise unique par ticker)
+        positions = []
+        
+        for ticker, group in df_actifs.groupby("Ticker"):
+            # Filtrer achats/ventes uniquement
+            trades = group[group["Type"].isin(["Achat", "Vente"])]
+            
+            if trades.empty:
+                continue
+            
+            # Quantité nette
+            qty_nette = trades["Quantité"].sum()
+            
+            if qty_nette <= 0:
+                continue  # Position fermée
+            
+            # Calcul PRU consolidé (sans filtre profil)
+            pru = self.calculate_pru(ticker, profil=None)
+            
+            # Récupération devise et nom complet
+            devise = trades.iloc[0]["Devise"]
+            nom_complet = trades.iloc[0].get("Nom complet", ticker)
+            
+            positions.append({
+                "Ticker": ticker,
+                "Nom complet": nom_complet,
+                "Quantité": round(qty_nette, 6),
+                "PRU": round(pru, 6),
+                "Devise": devise
+            })
+        
+        return pd.DataFrame(positions)
