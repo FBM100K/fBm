@@ -1,9 +1,5 @@
 """
 Portfolio Engine V3.0 - Module de calculs financiers avec multi-devises
-✅ Corrections V3:
-- get_positions_consolide() avec nom complet
-- Calcul PRU consolidé corrigé (avec frais)
-- Harmonisation retours DataFrame
 """
 
 import pandas as pd
@@ -112,19 +108,24 @@ class PortfolioEngine:
                 f"2. Vendre votre position {existing_devise} avant d'acheter en {devise}"
             )
         
-        return True, ""
-    
+        return True, 
     def validate_sale(self, ticker: str, profil: str, quantite_vente: float, date_vente: datetime) -> Tuple[bool, str]:
-        """Valide qu'une vente est possible (quantité disponible pour le profil)."""
-        qty_disponible = self.get_position_quantity(ticker, profil, date_vente)
-
-        if qty_disponible < quantite_vente:
-            return False, f"❌ Quantité insuffisante pour {profil}. Disponible: {qty_disponible:.6f}, Demandé: {quantite_vente:.6f}"
-
+        # Vérifier quantité pour LE PROFIL spécifique
+        qty_disponible = self.get_position_quantity(ticker, profil=profil, date_limite=date_vente)
+        
+        # Vérification quantité positive
         if quantite_vente <= 0:
-            return False, "❌ La quantité de vente doit être > 0"
-
-        return True, ""
+            return False, "❌ La quantité de vente doit être supérieure à 0"
+        
+        # Vérification stock suffisant
+        if qty_disponible < quantite_vente:
+            return False, (
+                f"❌ Quantité insuffisante pour {profil}\n"
+                f"📊 Disponible : {qty_disponible:.4f} actions\n"
+                f"🔴 Demandé : {quantite_vente:.4f} actions\n"
+                f"💡 Vous pouvez vendre maximum {qty_disponible:.4f} actions"
+            )
+        return True,""
     
     def prepare_achat_transaction(self, ticker: str, profil: str, quantite: float, prix_achat: float,
                                  frais: float, date_achat: datetime, devise: str, note: str = "",
