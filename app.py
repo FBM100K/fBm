@@ -10,6 +10,7 @@ import plotly.express as px
 from datetime import datetime, date
 from google.oauth2.service_account import Credentials
 import requests
+import time
 
 # Import des moteurs
 from portfolio_engine import PortfolioEngine
@@ -106,43 +107,46 @@ def parse_float(val):
     except:
         return 0.0
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False) 
 def load_transactions_from_sheet():
-    """
-    Charge les transactions depuis Google Sheets avec normalisation.
-    TTL: 60 secondes
-    """
     if sheet is None:
         return pd.DataFrame(columns=EXPECTED_COLS)
     
     try:
-        records = sheet.get_all_records()
-        df = pd.DataFrame(records)
+        values = sheet.get_all_values()
+        
+        if len(values) <= 1:
+            return pd.DataFrame(columns=EXPECTED_COLS)
+        
+        # Conversion en DataFrame avec header
+        df = pd.DataFrame(values[1:], columns=values[0])
         
         # Ajout colonnes manquantes
         for c in EXPECTED_COLS:
             if c not in df.columns:
                 df[c] = None
         
-        # Normalisation dates
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+        # Normalisation dates vectorisée
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce", format="%Y-%m-%d").dt.date
         
-        # Normalisation numériques
+        # Normalisation numériques en bloc
         numeric_cols = [
             "Quantité", "Prix_unitaire", "Frais (€/$)",
             "PnL réalisé (€/$)", "PnL réalisé (%)", "PRU_vente", "Taux_change"
         ]
+        
         for col in numeric_cols:
             if col in df.columns:
+                # Nettoyage et conversion en une seule passe
                 df[col] = (
                     df[col]
                     .astype(str)
-                    .replace(["", "None", "nan"], "0")
                     .str.replace(",", ".", regex=False)
+                    .replace(["", "None", "nan", "NaN"], "0")
                 )
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
         
-        # Remplissage valeurs par défaut
+        # Valeurs par défaut
         df["Devise"] = df["Devise"].fillna("EUR")
         df["Devise_reference"] = df["Devise_reference"].fillna("EUR")
         df["Profil"] = df["Profil"].fillna("Gas")
@@ -158,15 +162,6 @@ def load_transactions_from_sheet():
         return pd.DataFrame(columns=EXPECTED_COLS)
 
 def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
-    """
-    Sauvegarde les transactions dans Google Sheets avec backup automatique.
-    
-    Args:
-        df: DataFrame à sauvegarder
-    
-    Returns:
-        True si succès, False sinon
-    """
     if sheet is None or sh is None:
         st.error("❌ Pas de connexion à Google Sheets")
         return False
@@ -206,8 +201,6 @@ def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
             
             if old_data:
                 backup_ws.update("A1", old_data, value_input_option="USER_ENTERED")
-            
-            st.success(f"✅ Backup créé : {backup_name}")
         
         except Exception as e:
             st.warning(f"⚠️ Backup non créé : {e}")
@@ -223,7 +216,6 @@ def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
                 backups_sorted = sorted(backups, key=lambda w: w.title, reverse=True)
                 for old in backups_sorted[5:]:
                     sh.del_worksheet(old)
-                    st.info(f"🗑️ Ancien backup supprimé : {old.title}")
         except Exception as e:
             st.warning(f"⚠️ Rotation backup non appliquée : {e}")
         
@@ -233,18 +225,8 @@ def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
         st.error(f"❌ Erreur écriture : {e}")
         return False
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_last_close_batch(tickers: list) -> dict:
-    """
-    Récupère les prix de clôture pour une liste de tickers.
-    TTL: 60 secondes
-    
-    Args:
-        tickers: Liste de tickers
-    
-    Returns:
-        Dict {ticker: prix} ou {ticker: None} si erreur
-    """
     result = {}
     if not tickers:
         return result
@@ -259,14 +241,14 @@ def fetch_last_close_batch(tickers: list) -> dict:
         return result
     
     try:
-        # Téléchargement batch
         data = yf.download(
             tickers,
-            period="7d",
+            period="1d",
             progress=False,
             threads=True,
             group_by='ticker',
-            auto_adjust=False
+            auto_adjust=False,
+            timeout=5  
         )
         
         if isinstance(data.columns, pd.MultiIndex):
@@ -274,46 +256,87 @@ def fetch_last_close_batch(tickers: list) -> dict:
             for t in tickers:
                 try:
                     ser = data[t]['Close'].dropna()
-                    result[t] = float(ser.iloc[-1]) if not ser.empty else None
+                    result[t] = float(ser.iloc[-1]) if not ser.empty else 0.0
                 except:
-                    result[t] = None
+                    result[t] = 0.0
         else:
             # Un seul ticker
             try:
                 ser = data['Close'].dropna()
-                result[tickers[0]] = float(ser.iloc[-1]) if not ser.empty else None
+                result[tickers[0]] = float(ser.iloc[-1]) if not ser.empty else 0.0
             except:
-                result[tickers[0]] = None
+                result[tickers[0]] = 0.0
         
         return result
     
-    except:
-        # Fallback: téléchargement individuel
-        for t in tickers:
-            try:
-                hist = yf.Ticker(t).history(period="7d")
-                result[t] = float(hist['Close'].dropna().iloc[-1]) if not hist.empty else None
-            except:
-                result[t] = None
-        
-        return result
+    except Exception as e:
+        return {t: 0.0 for t in tickers}
 
 # -----------------------
-# Chargement initial données
+# Chargement initial données avec indicateurs visuels
 # -----------------------
+if "app_initialized" not in st.session_state:
+    st.session_state.app_initialized = False
+
 if sheet is not None:
     if (
         "df_transactions" not in st.session_state
         or st.session_state.df_transactions is None
         or st.session_state.df_transactions.empty
     ):
-        df_loaded = load_transactions_from_sheet()
-        if df_loaded is not None and not df_loaded.empty:
-            st.session_state.df_transactions = df_loaded
+        # Affichage barre de progression
+        if not st.session_state.app_initialized:
+            # Créer conteneur pour progression
+            progress_container = st.container()
+            
+            with progress_container:
+                st.markdown("### 📊 Initialisation du Dashboard")
+                progress_bar = st.progress(0, text="Connexion en cours...")
+                status_text = st.empty()
+                
+                # Étape 1 : Connexion établie
+                status_text.info("🔐 Connexion à Google Sheets établie")
+                progress_bar.progress(25, text="Téléchargement des données...")
+                
+                # Étape 2 : Chargement données
+                with st.spinner("📥 Chargement des transactions..."):
+                    df_loaded = load_transactions_from_sheet()
+                
+                progress_bar.progress(60, text="Traitement des données...")
+                
+                if df_loaded is not None and not df_loaded.empty:
+                    st.session_state.df_transactions = df_loaded
+                    nb_transactions = len(df_loaded)
+                    
+                    # Étape 3 : Initialisation currency manager
+                    status_text.info("💱 Initialisation des taux de change...")
+                    progress_bar.progress(80, text="Finalisation...")
+                    
+                    if "currency_manager" not in st.session_state:
+                        st.session_state.currency_manager = CurrencyManager()
+                    
+                    # Étape 4 : Terminé
+                    progress_bar.progress(100, text="Chargement terminé !")
+                    status_text.success(f"✅ {nb_transactions} transactions chargées avec succès")
+                    
+                    # Marquer comme initialisé
+                    st.session_state.app_initialized = True
+                    
+                    # Nettoyer les indicateurs et recharger
+                    st.rerun()
+                else:
+                    progress_bar.progress(100, text="Aucune donnée")
+                    status_text.warning("⚠️ Aucune donnée chargée (sheet non accessible)")
+                    st.session_state.app_initialized = True
         else:
-            st.warning("⚠️ Aucune donnée chargée (sheet vide ou non accessible)")
+            # Chargement silencieux (déjà initialisé)
+            with st.spinner("🔄 Rechargement des données..."):
+                df_loaded = load_transactions_from_sheet()
+                if df_loaded is not None and not df_loaded.empty:
+                    st.session_state.df_transactions = df_loaded
 else:
     st.error("❌ Impossible de se connecter à Google Sheets - vérifiez st.secrets")
+    st.info("💡 Vérifiez que le fichier `.streamlit/secrets.toml` contient les bonnes credentials")
 
 # -----------------------
 # Header avec indicateurs et toggle devise
@@ -342,21 +365,23 @@ with col_title:
                 ventes["PRU_vente"].notna() & (ventes["PRU_vente"] > 0)
             ]
             pct_migre = len(ventes_avec_pru) / len(ventes) * 100
-            
-            if pct_migre < 100:
-                st.warning(f"⚠️ Migration V2 incomplète: {pct_migre:.0f}%")
-            else:
-                st.success("✅ Toutes les ventes ont PRU_vente")
 
 with col_currency:
-    devise_affichage = st.radio(
-        "💱 Devise",
+    # Récupération de la devise actuelle
+    current_devise = st.session_state.devise_affichage
+    # Calcul de l'index correct (0=EUR, 1=USD)
+    current_index = 0 if current_devise == "EUR" else 1
+    # Widget radio
+    selected_devise = st.radio(
+        "💱 Devise d'affichage",
         options=["EUR", "USD"],
-        index=0 if st.session_state.devise_affichage == "EUR" else 1,
+        index=current_index,
         horizontal=True,
-        key="currency_toggle"
+        key="currency_toggle",
+        help="Basculez entre Euro et Dollar pour l'affichage des montants"
     )
-    st.session_state.devise_affichage = devise_affichage
+    # Mise à jour directe avec la sélection
+    st.session_state.devise_affichage = selected_devise
 
 # -----------------------
 # Recherche Ticker - Fonctions
@@ -372,10 +397,8 @@ except:
 def get_alpha_vantage_suggestions(query: str) -> list:
     """
     Recherche des tickers sur Alpha Vantage avec cache.
-    
     Args:
         query: Terme de recherche (min 2 caractères)
-    
     Returns:
         Liste de suggestions formatées ["TICKER — Nom (Région)"]
     """
@@ -464,15 +487,6 @@ def get_ticker_full_name_from_api(ticker: str) -> str:
 
 
 def get_ticker_full_name(ticker: str) -> str:
-    """
-    Retourne le nom complet depuis cache local ou API.
-    
-    Args:
-        ticker: Code ticker
-    
-    Returns:
-        Nom complet formaté
-    """
     ticker = ticker.upper().strip()
     cache = st.session_state.ticker_cache
     
@@ -524,7 +538,7 @@ with tab1:
     
     # --- Recherche de titre (si Achat/Vente/Dividende) ---
     if type_tx in ["Achat", "Vente", "Dividende"]:
-        st.markdown("### 🔍 Recherche de titre")
+        st.markdown("### Recherche de titre")
         
         col_rech1, col_rech2 = st.columns([4, 1])
         with col_rech1:
@@ -580,19 +594,65 @@ with tab1:
         quantite = parse_float(quantite_input)
         prix = parse_float(prix_input)
         frais = parse_float(frais_input)
-        
-        # Validations
         errors = []
-        if type_tx in ("Achat", "Vente", "Dividende") and not ticker_selected:
-            errors.append("❌ Ticker requis pour Achat/Vente/Dividende")
-        if quantite <= 0.0001 and type_tx not in ["Retrait"]:
-            errors.append("❌ Quantité doit être > 0.0001")
-        if prix <= 0.0001 and type_tx not in ["Dépôt", "Retrait", "Dividende"]:
-            errors.append("❌ Prix doit être > 0.0001")
         
+        # Validation 1 : Ticker requis pour Achat/Vente/Dividende
+        if type_tx in ("Achat", "Vente", "Dividende") and not ticker_selected:
+            errors.append("❌ **Ticker requis** : Veuillez rechercher et sélectionner une action")
+        
+        # Validation 2 : Quantité strictement positive (sauf Retrait)
+        if type_tx not in ["Retrait"]:
+            if quantite <= 0.0001:
+                errors.append(f"❌ **Quantité invalide** : {quantite:.4f} - Doit être > 0.0001")
+        else:
+            # Pour Retrait, quantité peut être 0 (utilise prix à la place)
+            if quantite <= 0.0001 and prix <= 0.0001:
+                errors.append("❌ **Montant requis** : Indiquez le montant du retrait")
+        
+        # Validation 3 : Prix unitaire strictement positif
+        # ✅ CORRECTION : Validation explicite pour chaque type
+        if type_tx == "Achat":
+            if prix <= 0.0001:
+                errors.append(f"❌ **Prix d'achat invalide** : {prix:.4f} - Doit être > 0.0001")
+        
+        elif type_tx == "Vente":
+            if prix <= 0.0001:
+                errors.append(f"❌ **Prix de vente invalide** : {prix:.4f} - Doit être > 0.0001")
+        
+        elif type_tx == "Dépôt":
+            # Pour dépôt, on utilise quantite OU prix
+            if quantite <= 0.0001 and prix <= 1.0:
+                errors.append("❌ **Montant du dépôt invalide** : Indiquez le montant")
+        
+        elif type_tx == "Dividende":
+            # Pour dividende, quantité = montant brut
+            if quantite <= 0.0001:
+                errors.append(f"❌ **Montant brut dividende invalide** : {quantite:.4f} - Doit être > 0")
+        
+        # Validation 4 : Frais ne peuvent pas être négatifs
+        if frais < 0:
+            errors.append(f"❌ **Frais invalides** : {frais:.2f} - Ne peuvent pas être négatifs")
+        
+        # Validation 5 : Date ne peut pas être dans le futur
+        date_limite = datetime.today().date()
+        if date_input > date_limite:
+            errors.append(f"❌ **Date invalide** : {date_input} - Ne peut pas être dans le futur")
+    
+    # ============================================
+    # AFFICHAGE DES ERREURS
+    # ============================================
         if errors:
-            for err in errors:
-                st.error(err)
+            st.error("### Erreurs de validation\n\n" + "\n\n".join(errors))
+            # Focus visuel sur la zone d'erreur
+            st.markdown(
+                """
+                <style>
+                .stButton button {
+                    border: 2px solid #ff4b4b !important;
+                }
+                </style> """,
+                unsafe_allow_html=True
+            )
         else:
             # Chargement historique
             if isinstance(st.session_state.df_transactions, pd.DataFrame) and not st.session_state.df_transactions.empty:
@@ -726,12 +786,12 @@ with tab1:
         st.dataframe(df_display.head(100), use_container_width=True, hide_index=True)
     else:
         st.info("ℹ️ Aucune transaction enregistrée")
-        
+
 # -----------------------
-# ONGLET 2 : Portefeuille Consolidé
+# ONGLET 2 : Portefeuille Consolidé - BLOC CORRIGÉ
 # -----------------------
 with tab2:
-    st.header("📂 Portefeuille consolidé")
+    st.header("Portefeuille consolidé")
     
     if st.session_state.df_transactions is None or st.session_state.df_transactions.empty:
         st.info("ℹ️ Aucune transaction")
@@ -757,52 +817,60 @@ with tab2:
             )
         
         # --- Indicateurs clés ---
-        st.subheader(f"📊 Indicateurs clés ({devise_affichage})")
+        st.subheader(f"Indicateurs clés ({devise_affichage})")
         k1, k2, k3, k4, k5 = st.columns(5)
         
         k1.metric("💵 Dépôts totaux", f"{summary['total_depots']:,.2f} {symbole}")
         k2.metric("💰 Liquidités", f"{summary['cash']:,.2f} {symbole}")
         
-        # Calcul valeur actifs et PnL latent
+        # ============================================
+        # ✅ BLOC CORRIGÉ : Calculs dans le BON ORDRE
+        # ============================================
         if not positions.empty:
+            # ÉTAPE 1 : Récupération des prix
             tickers = positions["Ticker"].tolist()
             prices = fetch_last_close_batch(tickers)
             
-            # ✅ Utilisation fonction standardisée
-            positions_display = format_positions_display(
-                positions=positions,
-                prices=prices,
-                currency_manager=currency_manager,
-                target_currency=devise_affichage,
-                sort_by="PnL_latent_converti",
-                ascending=False
-            )
-            
-            # Calculs agrégés depuis positions brutes
+            # ÉTAPE 2 : Ajout prix actuels avec sécurité None
             positions["Prix_actuel"] = positions["Ticker"].map(prices)
+            positions["Prix_actuel"] = positions["Prix_actuel"].fillna(0.0)
+            
+            # ÉTAPE 3 : Calcul Valeur origine
             positions["Valeur_origine"] = positions["Quantité"] * positions["Prix_actuel"]
+            
+            # ÉTAPE 4 : Calcul PnL latent (AVANT conversion)
+            positions["PnL_latent"] = (positions["Prix_actuel"] - positions["PRU"]) * positions["Quantité"]
+            positions["PnL_latent_%"] = ((positions["Prix_actuel"] - positions["PRU"]) / positions["PRU"] * 100).round(2)
+            positions["PnL_latent_%"] = positions["PnL_latent_%"].fillna(0.0)
+            
+            # ÉTAPE 5 : Conversion Valeur (APRÈS avoir créé Valeur_origine)
             positions["Valeur_convertie"] = positions.apply(
                 lambda row: currency_manager.convert(
                     row["Valeur_origine"], row["Devise"], devise_affichage
-                ) if row["Devise"] != devise_affichage and row["Prix_actuel"] > 0
+                ) if row["Devise"] != devise_affichage and row["Prix_actuel"] is not None and row["Prix_actuel"] > 0
                 else row["Valeur_origine"],
                 axis=1
             )
-            positions["PnL_latent"] = (positions["Prix_actuel"] - positions["PRU"]) * positions["Quantité"]
+            
+            # ÉTAPE 6 : Conversion PnL latent (APRÈS avoir créé PnL_latent)
             positions["PnL_latent_converti"] = positions.apply(
                 lambda row: currency_manager.convert(
                     row["PnL_latent"], row["Devise"], devise_affichage
-                ) if row["Devise"] != devise_affichage
+                ) if row["Devise"] != devise_affichage and row["Prix_actuel"] is not None
                 else row["PnL_latent"],
                 axis=1
             )
             
+            # ÉTAPE 7 : Agrégation totaux
             total_valeur = positions["Valeur_convertie"].sum()
             total_pnl_latent = positions["PnL_latent_converti"].sum()
         else:
-            positions_display = pd.DataFrame()
             total_valeur = 0.0
             total_pnl_latent = 0.0
+        
+        # ============================================
+        # FIN BLOC CORRIGÉ
+        # ============================================
         
         k3.metric("📊 Valeur actifs", f"{total_valeur:,.2f} {symbole}")
         k4.metric(
@@ -814,10 +882,29 @@ with tab2:
         
         st.divider()
         
-        # --- Tableau positions ---
-        if not positions_display.empty:
+        # --- Tableau positions avec format_positions_display ---
+        if not positions.empty:
             st.subheader("📋 Positions ouvertes")
-            st.dataframe(positions_display, use_container_width=True, hide_index=True)
+            
+            # ✅ Utilisation de la fonction utilitaire (si vous l'avez)
+            try:
+                from utils import format_positions_display
+                
+                positions_display = format_positions_display(
+                    positions=positions,
+                    prices=prices,
+                    currency_manager=currency_manager,
+                    target_currency=devise_affichage,
+                    sort_by="PnL_latent_converti",
+                    ascending=False
+                )
+                st.dataframe(positions_display, use_container_width=True, hide_index=True)
+            
+            except ImportError:
+                # Fallback si utils.py n'existe pas encore
+                st.warning("⚠️ Module utils.py non trouvé - Affichage basique")
+                display_cols = ["Ticker", "Nom complet", "Quantité", "PRU", "Devise", "Prix_actuel"]
+                st.dataframe(positions[display_cols], use_container_width=True, hide_index=True)
             
             # --- Graphique répartition ---
             fig_pie = px.pie(
@@ -859,17 +946,12 @@ with tab2:
                 labels={"Date_sort": "Date", "PnL_cumule": "PnL Cumulé"}
             )
             st.plotly_chart(fig_line, use_container_width=True)
-        
-        # --- Détails calculs (expander) ---
-        with st.expander("🔍 Détails des calculs"):
-            st.write(f"**Résumé financier ({devise_affichage}):**")
-            st.json(summary)
 
 # -----------------------
 # ONGLET 3 : Répartition par Profil
 # -----------------------
 with tab3:
-    st.header("📊 Répartition portefeuilles individuels")
+    st.header("Répartition portefeuilles individuels")
     
     if st.session_state.df_transactions is None or st.session_state.df_transactions.empty:
         st.info("ℹ️ Aucune transaction")
@@ -897,49 +979,53 @@ with tab3:
                 )
                 positions_profil = engine_profil.get_positions(profil=profil)
                 
-                # --- Calculs valorisation ---
                 if not positions_profil.empty:
+                    # ÉTAPE 1 : Récupération des prix
                     tickers_profil = positions_profil["Ticker"].tolist()
                     prices_profil = fetch_last_close_batch(tickers_profil)
                     
-                    # ✅ Utilisation fonction standardisée
-                    positions_display_profil = format_positions_display(
-                        positions=positions_profil,
-                        prices=prices_profil,
-                        currency_manager=currency_manager,
-                        target_currency=devise_affichage,
-                        sort_by="PnL_latent_converti",
-                        ascending=False
-                    )
-                    
-                    # Calculs agrégés
+                    # ÉTAPE 2 : Ajout prix actuels avec sécurité None
                     positions_profil["Prix_actuel"] = positions_profil["Ticker"].map(prices_profil)
+                    positions_profil["Prix_actuel"] = positions_profil["Prix_actuel"].fillna(0.0)
+                    
+                    # ÉTAPE 3 : Calcul Valeur origine
                     positions_profil["Valeur_origine"] = (
                         positions_profil["Quantité"] * positions_profil["Prix_actuel"]
                     )
-                    positions_profil["Valeur_convertie"] = positions_profil.apply(
-                        lambda row: currency_manager.convert(
-                            row["Valeur_origine"], row["Devise"], devise_affichage
-                        ) if row["Devise"] != devise_affichage and row["Prix_actuel"] > 0
-                        else row["Valeur_origine"],
-                        axis=1
-                    )
+                    
+                    # ÉTAPE 4 : Calcul PnL latent (AVANT conversion)
                     positions_profil["PnL_latent"] = (
                         (positions_profil["Prix_actuel"] - positions_profil["PRU"])
                         * positions_profil["Quantité"]
                     )
+                    positions_profil["PnL_latent_%"] = (
+                        (positions_profil["Prix_actuel"] - positions_profil["PRU"]) 
+                        / positions_profil["PRU"] * 100
+                    ).round(2)
+                    positions_profil["PnL_latent_%"] = positions_profil["PnL_latent_%"].fillna(0.0)
+                    
+                    # ÉTAPE 5 : Conversion Valeur (APRÈS avoir créé Valeur_origine)
+                    positions_profil["Valeur_convertie"] = positions_profil.apply(
+                        lambda row: currency_manager.convert(
+                            row["Valeur_origine"], row["Devise"], devise_affichage
+                        ) if row["Devise"] != devise_affichage and row["Prix_actuel"] is not None and row["Prix_actuel"] > 0
+                        else row["Valeur_origine"],
+                        axis=1
+                    )
+                    
+                    # ÉTAPE 6 : Conversion PnL latent (APRÈS avoir créé PnL_latent)
                     positions_profil["PnL_latent_converti"] = positions_profil.apply(
                         lambda row: currency_manager.convert(
                             row["PnL_latent"], row["Devise"], devise_affichage
-                        ) if row["Devise"] != devise_affichage
+                        ) if row["Devise"] != devise_affichage and row["Prix_actuel"] is not None
                         else row["PnL_latent"],
                         axis=1
                     )
                     
+                    # ÉTAPE 7 : Agrégation totaux
                     total_valeur_profil = positions_profil["Valeur_convertie"].sum()
                     total_pnl_latent_profil = positions_profil["PnL_latent_converti"].sum()
                 else:
-                    positions_display_profil = pd.DataFrame()
                     total_valeur_profil = 0.0
                     total_pnl_latent_profil = 0.0
                 
@@ -958,13 +1044,35 @@ with tab3:
                 st.divider()
                 
                 # --- Tableau positions ---
-                if not positions_display_profil.empty:
+                if not positions_profil.empty:
                     st.caption("**Top 5 Positions**")
-                    st.dataframe(
-                        positions_display_profil.head(5),
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                    
+                    # ✅ Utilisation de la fonction utilitaire (si disponible)
+                    try:
+                        from utils import format_positions_display
+                        
+                        positions_display_profil = format_positions_display(
+                            positions=positions_profil,
+                            prices=prices_profil,
+                            currency_manager=currency_manager,
+                            target_currency=devise_affichage,
+                            sort_by="PnL_latent_converti",
+                            ascending=False
+                        )
+                        st.dataframe(
+                            positions_display_profil.head(5),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    
+                    except ImportError:
+                        # Fallback si utils.py n'existe pas
+                        display_cols = ["Ticker", "Nom complet", "Quantité", "PRU", "Devise"]
+                        st.dataframe(
+                            positions_profil[display_cols].head(5),
+                            use_container_width=True,
+                            hide_index=True
+                        )
                     
                     # --- Graphique camembert ---
                     fig_profil = px.pie(
@@ -984,7 +1092,6 @@ with tab3:
                     "margin:20px 0; border-radius:3px;'></div>",
                     unsafe_allow_html=True
                 )
-
 # -----------------------
 # ONGLET 4 : Calendrier
 # -----------------------
@@ -1029,7 +1136,7 @@ with tab4:
 # SIDEBAR : Statistiques & Actions
 # -----------------------
 with st.sidebar:
-    st.title("⚙️ Paramètres")
+    st.title("Paramètres")
     st.divider()
     
     # --- Statistiques ---
