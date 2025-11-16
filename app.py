@@ -68,7 +68,7 @@ if "currency_manager" not in st.session_state:
 if "df_transactions" not in st.session_state:
     st.session_state.df_transactions = None
 
-# Références rapides
+# Références
 currency_manager = st.session_state.currency_manager
 
 # -----------------------
@@ -154,7 +154,6 @@ def load_transactions_from_sheet():
         
         # Réorganisation colonnes
         df = df.reindex(columns=EXPECTED_COLS)
-        
         return df
     
     except Exception as e:
@@ -188,7 +187,7 @@ def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
     values = [EXPECTED_COLS] + df_out[EXPECTED_COLS].fillna("").astype(str).values.tolist()
     
     try:
-        # 📦 Création backup
+        # Création backup
         try:
             backup_name = f"backup_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
             old_data = sheet.get_all_values()
@@ -204,12 +203,10 @@ def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
         
         except Exception as e:
             st.warning(f"⚠️ Backup non créé : {e}")
-        
-        # ✏️ Mise à jour sheet principal
         sheet.clear()
         sheet.update("A1", values, value_input_option="USER_ENTERED")
         
-        # ♻️ Rotation backups (max 5)
+        # Rotation backups (max 5)
         try:
             backups = [w for w in sh.worksheets() if w.title.startswith("backup_")]
             if len(backups) > 5:
@@ -501,7 +498,7 @@ def get_ticker_full_name(ticker: str) -> str:
     return full_name
 
 # -----------------------
-# ONGLET 1 : Transactions
+# ONGLET 1 : Transactions - VERSION FINALE V3.1
 # -----------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "💰 Transactions",
@@ -511,262 +508,481 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 with tab1:
-    st.header("Ajouter une transaction")
-    
-    # --- Paramètres généraux ---
-    col_profil, col_type = st.columns(2)
-    with col_profil:
-        profil = st.selectbox(
-            "Portefeuille / Profil",
-            ["Gas", "Marc"],
-            index=0
-        )
-    with col_type:
-        type_tx = st.selectbox(
-            "Type",
-            ["Achat", "Vente", "Dépôt", "Retrait", "Dividende"],
-            index=0
-        )
-    
-    # --- Initialisation états recherche ---
-    if "ticker_query" not in st.session_state:
-        st.session_state.ticker_query = ""
-    if "ticker_suggestions" not in st.session_state:
-        st.session_state.ticker_suggestions = []
-    if "ticker_selected" not in st.session_state:
-        st.session_state.ticker_selected = ""
-    
-    # --- Recherche de titre (si Achat/Vente/Dividende) ---
-    if type_tx in ["Achat", "Vente", "Dividende"]:
-        st.markdown("### Recherche de titre")
+    st.markdown(
+        """
+        <style>
+        /* ✅ SUPPRESSION de l'effet de flou blanchâtre lors du chargement */
+        [data-testid="stAppViewContainer"] > section {
+            background: transparent !important;
+        }
         
-        col_rech1, col_rech2 = st.columns([4, 1])
-        with col_rech1:
-            query = st.text_input(
-                "Entrez un nom ou ticker :",
-                value=st.session_state.ticker_query,
-                label_visibility="collapsed",
-                placeholder="Ex: AAPL, Tesla, LVMH..."
+        /* Désactiver l'overlay de rechargement qui cause le flou */
+        .stSpinner > div {
+            background: transparent !important;
+        }
+        
+        /* Pas de backdrop flou */
+        [data-testid="stStatusWidget"] {
+            background: transparent !important;
+        }
+        
+        /* Réduire espacement entre champs pour layout compact */
+        .stTextInput > div > div > input,
+        .stSelectbox > div > div > div,
+        .stDateInput > div > div > input,
+        .stTextArea > div > div > textarea {
+            padding: 8px 12px !important;
+            font-size: 14px !important;
+        }
+        
+        /* Labels plus compacts */
+        .stTextInput label, .stSelectbox label, .stDateInput label, .stTextArea label {
+            font-size: 13px !important;
+            margin-bottom: 4px !important;
+        }
+        
+        /* Formulaire dans expander avec bordure discrète */
+        [data-testid="stExpander"] {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+            margin-bottom: 20px;
+        }
+        
+        /* Titre expander plus clair */
+        [data-testid="stExpander"] summary {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f1f1f;
+        }
+        
+        /* Bouton principal plus visible */
+        .stButton > button[kind="primary"] {
+            background: linear-gradient(90deg, #4CAF50 0%, #45a049 100%);
+            font-weight: 600;
+            font-size: 16px;
+            padding: 12px 24px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .stButton > button[kind="primary"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+        }
+        
+        /* Bouton secondaire discret */
+        .stButton > button:not([kind="primary"]) {
+            background: #f5f5f5;
+            color: #666;
+            border: 1px solid #ddd;
+        }
+        
+        /* Messages d'erreur plus visibles */
+        .stAlert[data-baseweb="notification"] {
+            border-left: 5px solid #ff4b4b;
+            background-color: #fff5f5;
+            padding: 16px;
+            border-radius: 8px;
+        }
+        
+        /* Masquer footer Streamlit qui gêne */
+        footer {visibility: hidden;}
+        
+        /* Scroll fluide */
+        html {
+            scroll-behavior: smooth;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.header("💰 Transactions")
+    
+    # ============================================
+    # FORMULAIRE DANS EXPANDER
+    # ============================================
+    with st.expander("➕ Ajouter une transaction", expanded=True):
+        
+        # --- Paramètres généraux (layout compact sur 1 ligne) ---
+        col_profil, col_type = st.columns(2)
+        with col_profil:
+            profil = st.selectbox(
+                "Portefeuille / Profil",
+                ["Gas", "Marc"],
+                index=0,
+                help="Sélectionnez le propriétaire de la transaction"
             )
-        with col_rech2:
-            if st.button("🔎 Rechercher", use_container_width=True):
-                st.session_state.ticker_query = query
-                if query:
-                    suggestions = get_alpha_vantage_suggestions(query)
-                    st.session_state.ticker_suggestions = suggestions
-                    if not suggestions:
-                        st.warning("⚠️ Aucun résultat")
-        
-        # Affichage résultats
-        if st.session_state.ticker_suggestions:
-            sel = st.selectbox(
-                "Choisissez l'action :",
-                st.session_state.ticker_suggestions,
-                key="ticker_selectbox"
+        with col_type:
+            type_tx = st.selectbox(
+                "Type",
+                ["Achat", "Vente", "Dépôt", "Retrait", "Dividende"],
+                index=0,
+                help="Type d'opération à enregistrer"
             )
-            if sel:
-                ticker_extracted = sel.split(" — ")[0]
-                st.session_state.ticker_selected = ticker_extracted
         
-        # Confirmation ticker sélectionné
-        if st.session_state.ticker_selected:
-            st.success(f"✅ Ticker : {st.session_state.ticker_selected}")
-    
-    ticker_selected = st.session_state.ticker_selected or None
-    
-    # --- Détails de la transaction ---
-    st.markdown("### 📝 Détails de la transaction")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        quantite_input = st.text_input("Quantité", "0")
-        prix_default = "1.0" if type_tx in ["Dépôt", "Retrait"] else "0"
-        prix_input = st.text_input("Prix unitaire (€/$)", prix_default)
-    with col2:
-        frais_input = st.text_input("Frais (€/$)", "0")
-        date_input = st.date_input("Date", value=datetime.today())
-    
-    devise = st.selectbox("Devise", ["EUR", "USD"], index=0)
-    note = st.text_area("Note (optionnel)", "", max_chars=250)
-    
-    # --- Bouton validation ---
-    if st.button("➕ Ajouter Transaction", type="primary", use_container_width=True):
+        # --- Initialisation états recherche ---
+        if "ticker_query" not in st.session_state:
+            st.session_state.ticker_query = ""
+        if "ticker_suggestions" not in st.session_state:
+            st.session_state.ticker_suggestions = []
+        if "ticker_selected" not in st.session_state:
+            st.session_state.ticker_selected = ""
+        
+        # --- Recherche de titre (si Achat/Vente/Dividende) ---
+        if type_tx in ["Achat", "Vente", "Dividende"]:
+            st.markdown("#### 🔍 Recherche de titre")
+            
+            col_rech1, col_rech2 = st.columns([5, 1])
+            with col_rech1:
+                query = st.text_input(
+                    "Entrez un nom ou ticker :",
+                    value=st.session_state.ticker_query,
+                    label_visibility="collapsed",
+                    placeholder="Ex: AAPL, Tesla, LVMH...",
+                    help="Saisissez au moins 2 caractères"
+                )
+            with col_rech2:
+                if st.button("🔎", use_container_width=True, help="Lancer la recherche"):
+                    st.session_state.ticker_query = query
+                    if query:
+                        with st.spinner("🔍 Recherche en cours..."):
+                            suggestions = get_alpha_vantage_suggestions(query)
+                            st.session_state.ticker_suggestions = suggestions
+                            if not suggestions:
+                                st.warning("⚠️ Aucun résultat")
+            
+            # Affichage résultats
+            if st.session_state.ticker_suggestions:
+                sel = st.selectbox(
+                    "Choisissez l'action :",
+                    st.session_state.ticker_suggestions,
+                    key="ticker_selectbox"
+                )
+                if sel:
+                    ticker_extracted = sel.split(" — ")[0]
+                    st.session_state.ticker_selected = ticker_extracted
+            
+            # Confirmation ticker sélectionné
+            if st.session_state.ticker_selected:
+                st.success(f"✅ Titre sélectionné : **{st.session_state.ticker_selected}**")
+        
+        ticker_selected = st.session_state.ticker_selected or None
+        
+        # --- Détails de la transaction (layout compact 2x2) ---
+        st.markdown("#### 📝 Détails de la transaction")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            quantite_input = st.text_input(
+                "Quantité",
+                "0",
+                help="Nombre d'actions (ou montant pour Dépôt/Retrait)"
+            )
+            prix_default = "1.0" if type_tx in ["Dépôt", "Retrait"] else "0"
+            prix_input = st.text_input(
+                "Prix unitaire (€/$)",
+                prix_default,
+                help="Prix par action (ou 1.0 pour Dépôt/Retrait)"
+            )
+        with col2:
+            frais_input = st.text_input(
+                "Frais (€/$)",
+                "0",
+                help="Frais de transaction ou courtage"
+            )
+            date_input = st.date_input(
+                "Date",
+                value=datetime.today(),
+                max_value=datetime.today(),
+                help="Date de la transaction (ne peut pas être future)"
+            )
+        
+        devise = st.selectbox(
+            "Devise",
+            ["EUR", "USD"],
+            index=0,
+            help="Devise dans laquelle la transaction est effectuée"
+        )
+        
+        note = st.text_area(
+            "Note (optionnel)",
+            "",
+            max_chars=250,
+            height=70,
+            placeholder="Ajoutez un commentaire sur cette transaction...",
+            help="Commentaire libre (max 250 caractères)"
+        )
+        
+        # ============================================
+        # INDICATEUR DE COMPLÉTION
+        # ============================================
         quantite = parse_float(quantite_input)
         prix = parse_float(prix_input)
-        frais = parse_float(frais_input)
-        errors = []
         
-        # Validation 1 : Ticker requis pour Achat/Vente/Dividende
-        if type_tx in ("Achat", "Vente", "Dividende") and not ticker_selected:
-            errors.append("❌ **Ticker requis** : Veuillez rechercher et sélectionner une action")
+        # Calcul complétion
+        total_fields = 4
+        filled_fields = 2
         
-        # Validation 2 : Quantité strictement positive (sauf Retrait)
-        if type_tx not in ["Retrait"]:
-            if quantite <= 0.0001:
-                errors.append(f"❌ **Quantité invalide** : {quantite:.4f} - Doit être > 0.0001")
+        if type_tx in ["Achat", "Vente", "Dividende"]:
+            total_fields += 1
+            if ticker_selected:
+                filled_fields += 1
+        
+        if quantite > 0:
+            filled_fields += 1
+        
+        if prix > 0:
+            filled_fields += 1
+        
+        pct_complete = int((filled_fields / total_fields) * 100)
+        
+        if pct_complete < 50:
+            emoji_status = "🔴"
+        elif pct_complete < 80:
+            emoji_status = "🟡"
         else:
-            # Pour Retrait, quantité peut être 0 (utilise prix à la place)
-            if quantite <= 0.0001 and prix <= 0.0001:
-                errors.append("❌ **Montant requis** : Indiquez le montant du retrait")
+            emoji_status = "🟢"
         
-        # Validation 3 : Prix unitaire strictement positif
-        # ✅ CORRECTION : Validation explicite pour chaque type
-        if type_tx == "Achat":
-            if prix <= 0.0001:
-                errors.append(f"❌ **Prix d'achat invalide** : {prix:.4f} - Doit être > 0.0001")
-        
-        elif type_tx == "Vente":
-            if prix <= 0.0001:
-                errors.append(f"❌ **Prix de vente invalide** : {prix:.4f} - Doit être > 0.0001")
-        
-        elif type_tx == "Dépôt":
-            # Pour dépôt, on utilise quantite OU prix
-            if quantite <= 0.0001 and prix <= 1.0:
-                errors.append("❌ **Montant du dépôt invalide** : Indiquez le montant")
-        
-        elif type_tx == "Dividende":
-            # Pour dividende, quantité = montant brut
-            if quantite <= 0.0001:
-                errors.append(f"❌ **Montant brut dividende invalide** : {quantite:.4f} - Doit être > 0")
-        
-        # Validation 4 : Frais ne peuvent pas être négatifs
-        if frais < 0:
-            errors.append(f"❌ **Frais invalides** : {frais:.2f} - Ne peuvent pas être négatifs")
-        
-        # Validation 5 : Date ne peut pas être dans le futur
-        date_limite = datetime.today().date()
-        if date_input > date_limite:
-            errors.append(f"❌ **Date invalide** : {date_input} - Ne peut pas être dans le futur")
-    
-    # ============================================
-    # AFFICHAGE DES ERREURS
-    # ============================================
-        if errors:
-            st.error("### Erreurs de validation\n\n" + "\n\n".join(errors))
-            # Focus visuel sur la zone d'erreur
-            st.markdown(
-                """
-                <style>
-                .stButton button {
-                    border: 2px solid #ff4b4b !important;
-                }
-                </style> """,
-                unsafe_allow_html=True
+        # Affichage discret de la complétion
+        st.markdown("---")
+        col_progress, col_spacer = st.columns([3, 1])
+        with col_progress:
+            st.progress(pct_complete / 100)
+            st.caption(
+                f"{emoji_status} Formulaire complété à **{pct_complete}%**",
+                help="Remplissez tous les champs obligatoires"
             )
-        else:
-            # Chargement historique
-            if isinstance(st.session_state.df_transactions, pd.DataFrame) and not st.session_state.df_transactions.empty:
-                df_hist = st.session_state.df_transactions.copy()
+        
+        # ============================================
+        # BOUTONS (Ajouter + Effacer)
+        # ============================================
+        st.markdown("---")
+        
+        col_submit, col_clear = st.columns([4, 1])
+        
+        with col_submit:
+            submit_btn = st.button(
+                "➕ Ajouter Transaction",
+                type="primary",
+                use_container_width=True,
+                disabled=(pct_complete < 80),
+                help="Enregistrer la transaction dans le portefeuille"
+            )
+        
+        with col_clear:
+            if st.button(
+                "🗑️ Effacer",
+                use_container_width=True,
+                help="Réinitialiser tous les champs"
+            ):
+                st.session_state.ticker_selected = ""
+                st.session_state.ticker_suggestions = []
+                st.session_state.ticker_query = ""
+                st.success("✅ Formulaire réinitialisé")
+                st.rerun()
+        
+        # TRAITEMENT DU FORMULAIRE
+        # ============================================
+        if submit_btn:
+            quantite = parse_float(quantite_input)
+            prix = parse_float(prix_input)
+            frais = parse_float(frais_input)
+            errors = []
+            
+            # Validation 1 : Ticker requis pour Achat/Vente/Dividende
+            if type_tx in ("Achat", "Vente", "Dividende") and not ticker_selected:
+                errors.append("❌ **Ticker requis** : Veuillez rechercher et sélectionner une action")
+            
+            # Validation 2 : Quantité strictement positive (sauf Retrait)
+            if type_tx not in ["Retrait"]:
+                if quantite <= 0.0001:
+                    errors.append(f"❌ **Quantité invalide** : `{quantite:.4f}` - Doit être > 0.0001")
             else:
-                df_hist = load_transactions_from_sheet()
+                if quantite <= 0.0001 and prix <= 0.0001:
+                    errors.append("❌ **Montant requis** : Indiquez le montant du retrait")
             
-            if df_hist.empty:
-                df_hist = pd.DataFrame(columns=EXPECTED_COLS)
+            # Validation 3 : Prix unitaire strictement positif
+            if type_tx == "Achat":
+                if prix <= 0.0001:
+                    errors.append(f"❌ **Prix d'achat invalide** : `{prix:.4f}` - Doit être > 0.0001")
             
-            engine = PortfolioEngine(df_hist)
-            ticker = ticker_selected if ticker_selected else "CASH"
-            date_tx = pd.to_datetime(date_input)
-            transaction = None
+            elif type_tx == "Vente":
+                if prix <= 0.0001:
+                    errors.append(f"❌ **Prix de vente invalide** : `{prix:.4f}` - Doit être > 0.0001")
             
-            # --- Préparation transaction selon type ---
-            if type_tx == "Achat" and ticker != "CASH":
-                is_valid_currency, currency_error = engine.validate_currency_consistency(
-                    ticker, profil, devise
+            elif type_tx == "Dépôt":
+                if quantite <= 0.0001 and prix <= 1.0:
+                    errors.append("❌ **Montant du dépôt invalide** : Indiquez le montant")
+            
+            elif type_tx == "Dividende":
+                if quantite <= 0.0001:
+                    errors.append(f"❌ **Montant brut dividende invalide** : `{quantite:.4f}` - Doit être > 0")
+            
+            # Validation 4 : Frais ne peuvent pas être négatifs
+            if frais < 0:
+                errors.append(f"❌ **Frais invalides** : `{frais:.2f}` - Ne peuvent pas être négatifs")
+            
+            # Validation 5 : Date ne peut pas être dans le futur
+            date_limite = datetime.today().date()
+            if date_input > date_limite:
+                errors.append(f"❌ **Date invalide** : `{date_input}` - Ne peut pas être dans le futur")
+            
+            if errors:
+                # Ancre pour scroll
+                st.markdown('<div id="error-anchor"></div>', unsafe_allow_html=True)
+                
+                st.error("### ⚠️ Erreurs de validation\n\n" + "\n\n".join(errors))
+                
+                # Animation du bouton
+                st.markdown(
+                    """
+                    <style>
+                    .stButton button[kind="primary"] {
+                        border: 2px solid #ff4b4b !important;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
                 )
-                if not is_valid_currency:
-                    st.error(currency_error)
+                
+                # Auto-scroll vers erreur
+                st.markdown(
+                    """
+                    <script>
+                    setTimeout(function() {
+                        document.getElementById('error-anchor').scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center'
+                        });
+                    }, 100);
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+            
+            else:
+                # ✅ ENREGISTREMENT
+                if isinstance(st.session_state.df_transactions, pd.DataFrame) and not st.session_state.df_transactions.empty:
+                    df_hist = st.session_state.df_transactions.copy()
                 else:
-                    transaction = engine.prepare_achat_transaction(
+                    df_hist = load_transactions_from_sheet()
+                
+                if df_hist.empty:
+                    df_hist = pd.DataFrame(columns=EXPECTED_COLS)
+                
+                engine = PortfolioEngine(df_hist)
+                ticker = ticker_selected if ticker_selected else "CASH"
+                date_tx = pd.to_datetime(date_input)
+                transaction = None
+                
+                # --- Préparation transaction selon type ---
+                if type_tx == "Achat" and ticker != "CASH":
+                    is_valid_currency, currency_error = engine.validate_currency_consistency(
+                        ticker, profil, devise
+                    )
+                    if not is_valid_currency:
+                        st.error(currency_error)
+                    else:
+                        transaction = engine.prepare_achat_transaction(
+                            ticker=ticker,
+                            profil=profil,
+                            quantite=quantite,
+                            prix_achat=prix,
+                            frais=frais,
+                            date_achat=date_tx,
+                            devise=devise,
+                            note=note,
+                            currency_manager=currency_manager
+                        )
+                
+                elif type_tx == "Vente":
+                    transaction = engine.prepare_sale_transaction(
                         ticker=ticker,
                         profil=profil,
                         quantite=quantite,
-                        prix_achat=prix,
+                        prix_vente=prix,
                         frais=frais,
-                        date_achat=date_tx,
+                        date_vente=date_tx,
                         devise=devise,
                         note=note,
                         currency_manager=currency_manager
                     )
-            
-            elif type_tx == "Vente":
-                transaction = engine.prepare_sale_transaction(
-                    ticker=ticker,
-                    profil=profil,
-                    quantite=quantite,
-                    prix_vente=prix,
-                    frais=frais,
-                    date_vente=date_tx,
-                    devise=devise,
-                    note=note,
-                    currency_manager=currency_manager
-                )
-                if transaction is None:
-                    st.error("❌ Impossible de créer la vente (quantité insuffisante)")
-            
-            elif type_tx == "Dépôt":
-                transaction = engine.prepare_depot_transaction(
-                    profil=profil,
-                    montant=quantite if quantite > 0 else prix,
-                    date_depot=date_tx,
-                    devise=devise,
-                    note=note,
-                    currency_manager=currency_manager
-                )
-            
-            elif type_tx == "Retrait":
-                transaction = engine.prepare_retrait_transaction(
-                    profil=profil,
-                    montant=quantite if quantite > 0 else prix,
-                    date_retrait=date_tx,
-                    devise=devise,
-                    note=note,
-                    currency_manager=currency_manager
-                )
-            
-            elif type_tx == "Dividende":
-                transaction = engine.prepare_dividende_transaction(
-                    ticker=ticker,
-                    profil=profil,
-                    montant_brut=quantite,
-                    retenue_source=frais,
-                    date_dividende=date_tx,
-                    devise=devise,
-                    note=note,
-                    currency_manager=currency_manager
-                )
-            
-            # --- Enregistrement ---
-            if transaction:
-                # Récupération nom complet
-                if transaction["Ticker"] != "CASH":
-                    transaction["Nom complet"] = get_ticker_full_name(transaction["Ticker"])
-                else:
-                    transaction["Nom complet"] = "CASH"
+                    if transaction is None:
+                        st.error("❌ Impossible de créer la vente (quantité insuffisante)")
                 
-                # Ajout à l'historique
-                df_new = pd.concat([df_hist, pd.DataFrame([transaction])], ignore_index=True)
+                elif type_tx == "Dépôt":
+                    transaction = engine.prepare_depot_transaction(
+                        profil=profil,
+                        montant=quantite if quantite > 0 else prix,
+                        date_depot=date_tx,
+                        devise=devise,
+                        note=note,
+                        currency_manager=currency_manager
+                    )
                 
-                # Sauvegarde
-                ok = save_transactions_to_sheet(df_new)
-                if ok:
-                    st.success(f"✅ {type_tx} enregistré : {transaction['Ticker']}")
+                elif type_tx == "Retrait":
+                    transaction = engine.prepare_retrait_transaction(
+                        profil=profil,
+                        montant=quantite if quantite > 0 else prix,
+                        date_retrait=date_tx,
+                        devise=devise,
+                        note=note,
+                        currency_manager=currency_manager
+                    )
+                
+                elif type_tx == "Dividende":
+                    transaction = engine.prepare_dividende_transaction(
+                        ticker=ticker,
+                        profil=profil,
+                        montant_brut=quantite,
+                        retenue_source=frais,
+                        date_dividende=date_tx,
+                        devise=devise,
+                        note=note,
+                        currency_manager=currency_manager
+                    )
+                
+                # --- Enregistrement ---
+                if transaction:
+                    if transaction["Ticker"] != "CASH":
+                        transaction["Nom complet"] = get_ticker_full_name(transaction["Ticker"])
+                    else:
+                        transaction["Nom complet"] = "CASH"
                     
-                    # Messages spécifiques
-                    if type_tx == "Vente":
-                        st.info(f"📊 PRU_vente figé : {transaction['PRU_vente']:.2f} {devise}")
-                        st.info(f"💰 PnL réalisé : {transaction['PnL réalisé (€/$)']:.2f} {devise}")
+                    df_new = pd.concat([df_hist, pd.DataFrame([transaction])], ignore_index=True)
                     
-                    if transaction.get("Taux_change") and transaction["Taux_change"] != 1.0:
-                        st.info(f"💱 Taux de change figé : {transaction['Taux_change']:.4f}")
-                    
-                    # Rechargement
-                    st.session_state.df_transactions = load_transactions_from_sheet()
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("❌ Erreur enregistrement")
-    
-    # --- Historique des transactions ---
+                    ok = save_transactions_to_sheet(df_new)
+                    if ok:
+                        st.success(f"✅ **{type_tx} enregistré** : {transaction['Ticker']}")
+                        
+                        if type_tx == "Vente":
+                            st.info(f"📊 PRU_vente figé : {transaction['PRU_vente']:.2f} {devise}")
+                            st.info(f"💰 PnL réalisé : {transaction['PnL réalisé (€/$)']:.2f} {devise}")
+                        
+                        if transaction.get("Taux_change") and transaction["Taux_change"] != 1.0:
+                            st.info(f"💱 Taux de change figé : {transaction['Taux_change']:.4f}")
+                        
+                        st.session_state.df_transactions = load_transactions_from_sheet()
+                        st.cache_data.clear()
+                        
+                        # Scroll vers le haut après succès
+                        st.markdown(
+                            """
+                            <script>
+                            window.scrollTo({top: 0, behavior: 'smooth'});
+                            </script>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        
+                        st.rerun()
+                    else:
+                        st.error("❌ Erreur enregistrement")
+
+    # HISTORIQUE 
+    # ============================================
     st.divider()
     st.subheader("📜 Historique des transactions")
     
