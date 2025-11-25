@@ -1021,7 +1021,7 @@ with tab2:
             target_currency=devise_affichage,
             currency_manager=currency_manager
         )
-        positions = engine.get_positions_consolide()  # ✅ V3 corrigé
+        positions = engine.get_positions_consolide()
         
         # --- Indicateur taux de change ---
         cache_info = currency_manager.get_cache_info()
@@ -1420,3 +1420,4 @@ st.caption(
 # -----------------------
 # FIN APP V3.0
 # -----------------------
+
