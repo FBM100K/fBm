@@ -1,5 +1,5 @@
 """
-Dashboard Portefeuille V3.0 - Multi-devises
+Dashboard Portefeuille V4.0 - Multi-devises
 """
 
 import streamlit as st
@@ -27,13 +27,13 @@ from utils import (
 # Configuration
 # -----------------------
 st.set_page_config(
-    page_title="Dashboard Portefeuille V3.0",
+    page_title="Dashboard Portefeuille V4.0",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 st.markdown(
-    "<h1 style='text-align: left; font-size: 32px;'>📊 Dashboard Portefeuille - FBM V3.0</h1>",
+    "<h1 style='text-align: left; font-size: 32px;'>📊 Dashboard Portefeuille - FBM V4.0</h1>",
     unsafe_allow_html=True
 )
 
@@ -1423,7 +1423,7 @@ with st.sidebar:
     
     # --- Informations ---
     st.subheader("ℹ️ Informations")
-    st.caption("Dashboard Portefeuille V3.0")
+    st.caption("Dashboard Portefeuille V4.0")
     st.caption("Multi-devises EUR/USD")
     st.caption(f"Dernière mise à jour: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     
@@ -1442,7 +1442,7 @@ with st.sidebar:
 # -----------------------
 st.divider()
 st.caption(
-    "© 2025 FBM Fintech - Dashboard Portefeuille V3.0 | "
+    "© 2025 FBM Fintech - Dashboard Portefeuille V4.0 | "
     "Multi-devises EUR/USD | Données temps réel via yfinance"
 )
 
