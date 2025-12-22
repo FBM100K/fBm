@@ -1085,9 +1085,19 @@ with tab2:
             
             # ÉTAPE 4 : Calcul PnL latent (AVANT conversion)
             positions["PnL_latent"] = (positions["Prix_actuel"] - positions["PRU"]) * positions["Quantité"]
+            positions["Cost_basis_origine"] = positions["PRU"] * positions["Quantité"]
             positions["PnL_latent_%"] = ((positions["Prix_actuel"] - positions["PRU"]) / positions["PRU"] * 100).round(2)
             positions["PnL_latent_%"] = positions["PnL_latent_%"].fillna(0.0)
             
+            # ✅ Conversion du coût investi dans la devise d'affichage
+            positions["Cost_basis_converti"] = positions.apply(
+                lambda row: currency_manager.convert(
+                    row["Cost_basis_origine"], row["Devise"], devise_affichage
+                ) if row["Devise"] != devise_affichage
+                else row["Cost_basis_origine"],
+                axis=1
+)
+
             # ÉTAPE 5 : Conversion Valeur (APRÈS avoir créé Valeur_origine)
             positions["Valeur_convertie"] = positions.apply(
                 lambda row: currency_manager.convert(
@@ -1109,9 +1119,10 @@ with tab2:
             # ÉTAPE 7 : Agrégation totaux
             total_valeur = positions["Valeur_convertie"].sum()
             total_pnl_latent = positions["PnL_latent_converti"].sum()
-        else:
-            total_valeur = 0.0
-            total_pnl_latent = 0.0
+            total_cost_basis = positions["Cost_basis_converti"].sum()
+
+            pnl_latent_pct_global = (total_pnl_latent / total_cost_basis * 100) if total_cost_basis > 0 else 0.0
+
         
         # ============================================
         # FIN BLOC CORRIGÉ
@@ -1121,8 +1132,9 @@ with tab2:
         k4.metric(
             "📈 PnL Latent",
             f"{total_pnl_latent:,.2f} {symbole}",
-            delta=f"{(total_pnl_latent/total_valeur*100):.2f}%" if total_valeur > 0 else "0%"
+            delta=f"{pnl_latent_pct_global:.2f}%"
         )
+
         k5.metric("✅ PnL Réalisé", f"{summary['pnl_realise_total']:,.2f} {symbole}")
         
         st.divider()
@@ -1243,12 +1255,23 @@ with tab3:
                         (positions_profil["Prix_actuel"] - positions_profil["PRU"])
                         * positions_profil["Quantité"]
                     )
+                    # ✅ Coût investi (cost basis) = PRU * Quantité
+                    positions_profil["Cost_basis_origine"] = positions_profil["PRU"] * positions_profil["Quantité"]
                     positions_profil["PnL_latent_%"] = (
                         (positions_profil["Prix_actuel"] - positions_profil["PRU"]) 
                         / positions_profil["PRU"] * 100
                     ).round(2)
                     positions_profil["PnL_latent_%"] = positions_profil["PnL_latent_%"].fillna(0.0)
-                    
+
+                    # ✅ Conversion du coût investi dans la devise d'affichage
+                    positions_profil["Cost_basis_converti"] = positions_profil.apply(
+                        lambda row: currency_manager.convert(
+                            row["Cost_basis_origine"], row["Devise"], devise_affichage
+                        ) if row["Devise"] != devise_affichage
+                        else row["Cost_basis_origine"],
+                        axis=1
+                    )           
+
                     # ÉTAPE 5 : Conversion Valeur (APRÈS avoir créé Valeur_origine)
                     positions_profil["Valeur_convertie"] = positions_profil.apply(
                         lambda row: currency_manager.convert(
@@ -1270,10 +1293,13 @@ with tab3:
                     # ÉTAPE 7 : Agrégation totaux
                     total_valeur_profil = positions_profil["Valeur_convertie"].sum()
                     total_pnl_latent_profil = positions_profil["PnL_latent_converti"].sum()
-                else:
-                    total_valeur_profil = 0.0
-                    total_pnl_latent_profil = 0.0
-                
+                    total_cost_basis_profil = positions_profil["Cost_basis_converti"].sum()
+
+                    pnl_latent_pct_profil = (total_pnl_latent_profil / total_cost_basis_profil * 100) if total_cost_basis_profil > 0 else 0.0
+                    total_cost_basis_profil = 0.0
+                    pnl_latent_pct_profil = 0.0
+
+
                 # --- KPI Bloc compact ---
                 row1_col1, row1_col2 = st.columns(2)
                 row2_col1, row2_col2 = st.columns(2)
@@ -1282,7 +1308,11 @@ with tab3:
                 row1_col1.metric("💵 Dépôts", f"{summary_profil['total_depots']:,.0f} {symbole}")
                 row1_col2.metric("💰 Liquidités", f"{summary_profil['cash']:,.0f} {symbole}")
                 row2_col1.metric("📊 Valeur actifs", f"{total_valeur_profil:,.0f} {symbole}")
-                row2_col2.metric("📈 PnL Latent", f"{total_pnl_latent_profil:,.0f} {symbole}")
+                row2_col2.metric(
+                    "📈 PnL Latent",
+                    f"{total_pnl_latent_profil:,.0f} {symbole}",
+                    delta=f"{pnl_latent_pct_profil:.2f}%"
+                )
                 row3_col1.metric("✅ PnL Réalisé", f"{summary_profil['pnl_realise_total']:,.0f} {symbole}")
                 row3_col2.metric("💎 Total", f"{summary_profil['cash'] + total_valeur_profil:,.0f} {symbole}")
                 
