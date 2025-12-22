@@ -243,30 +243,54 @@ def fetch_last_close_batch(tickers: list) -> dict:
             period="1d",
             progress=False,
             threads=True,
-            group_by='ticker',
+            group_by="ticker",
             auto_adjust=False,
-            timeout=5  
+            timeout=5,
         )
         
-        if isinstance(data.columns, pd.MultiIndex):
-            # Plusieurs tickers
-            for t in tickers:
-                try:
-                    ser = data[t]['Close'].dropna()
-                    result[t] = float(ser.iloc[-1]) if not ser.empty else 0.0
-                except:
-                    result[t] = 0.0
-        else:
-            # Un seul ticker
+        def get_last_close_for_ticker(t: str) -> float:
+            # 1️⃣ Tentative avec le batch 1 jour
             try:
-                ser = data['Close'].dropna()
-                result[tickers[0]] = float(ser.iloc[-1]) if not ser.empty else 0.0
-            except:
-                result[tickers[0]] = 0.0
+                if isinstance(data.columns, pd.MultiIndex):
+                    # Cas multi-tickers
+                    if t in data:
+                        ser = data[t]["Close"].dropna()
+                        if not ser.empty:
+                            return float(ser.iloc[-1])
+                else:
+                    # Cas 1 seul ticker
+                    ser = data["Close"].dropna()
+                    if not ser.empty:
+                        return float(ser.iloc[-1])
+            except Exception:
+                pass
+            
+            # 2️⃣ Fallback : historique sur 5 jours pour CE ticker
+            try:
+                data_fb = yf.download(
+                    t,
+                    period="5d",
+                    progress=False,
+                    auto_adjust=False,
+                    timeout=5,
+                )
+                if "Close" in data_fb:
+                    ser_fb = data_fb["Close"].dropna()
+                    if not ser_fb.empty:
+                        return float(ser_fb.iloc[-1])
+            except Exception:
+                pass
+            
+            # 3️⃣ Échec complet → 0.0 (sera affiché N/A)
+            return 0.0
+        
+        for t in tickers:
+            result[t] = get_last_close_for_ticker(t)
         
         return result
     
-    except Exception as e:
+    except Exception:
+        # En cas de gros échec, on renvoie tout à 0.0
         return {t: 0.0 for t in tickers}
 
 # -----------------------
@@ -287,16 +311,16 @@ if sheet is not None:
             progress_container = st.container()
             
             with progress_container:
-                st.markdown("### 📊 Initialisation du Dashboard")
+                st.markdown("### Initialisation du Dashboard")
                 progress_bar = st.progress(0, text="Connexion en cours...")
                 status_text = st.empty()
                 
                 # Étape 1 : Connexion établie
-                status_text.info("🔐 Connexion à Google Sheets établie")
+                status_text.info("Connexion à Google Sheets établie")
                 progress_bar.progress(25, text="Téléchargement des données...")
                 
                 # Étape 2 : Chargement données
-                with st.spinner("📥 Chargement des transactions..."):
+                with st.spinner("Chargement des transactions..."):
                     df_loaded = load_transactions_from_sheet()
                 
                 progress_bar.progress(60, text="Traitement des données...")
@@ -306,7 +330,7 @@ if sheet is not None:
                     nb_transactions = len(df_loaded)
                     
                     # Étape 3 : Initialisation currency manager
-                    status_text.info("💱 Initialisation des taux de change...")
+                    status_text.info("Initialisation des taux de change...")
                     progress_bar.progress(80, text="Finalisation...")
                     
                     if "currency_manager" not in st.session_state:
@@ -346,11 +370,34 @@ with col_title:
     # Indicateur taux de change
     cache_info = currency_manager.get_cache_info()
     if cache_info["status"] != "Non initialisé":
+        # Conteneur HTML pour pouvoir le masquer côté client
+        st.markdown(
+            "<div id='fx-status-container'>",
+            unsafe_allow_html=True
+        )
+        
         if cache_info["using_fallback"]:
             st.warning(f"⚠️ {cache_info['status']}")
         else:
             st.success(f"✅ {cache_info['status']}")
+        
         st.caption(f"Mise à jour: {cache_info['last_update']}")
+        
+        # Script pour masquer le conteneur après 2 secondes
+        st.markdown(
+            """
+            <script>
+            setTimeout(function() {
+                const rootDoc = window.parent.document;
+                const container = rootDoc.getElementById('fx-status-container');
+                if (container) {
+                    container.style.display = 'none';
+                }
+            }, 2000);
+            </script>
+            """,
+            unsafe_allow_html=True
+        )
     
     # Indicateur PRU_vente migration
     if st.session_state.df_transactions is not None:
@@ -598,7 +645,7 @@ with tab1:
         unsafe_allow_html=True
     )
     
-    st.header("💰 Transactions")
+    st.header("Transactions")
     
     # ============================================
     # FORMULAIRE DANS EXPANDER
@@ -1021,7 +1068,7 @@ with tab2:
             target_currency=devise_affichage,
             currency_manager=currency_manager
         )
-        positions = engine.get_positions_consolide()
+        positions = engine.get_positions_consolide()  # ✅ V3 corrigé
         
         # --- Indicateur taux de change ---
         cache_info = currency_manager.get_cache_info()
@@ -1420,4 +1467,3 @@ st.caption(
 # -----------------------
 # FIN APP V3.0
 # -----------------------
-
