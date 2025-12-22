@@ -68,6 +68,9 @@ if "currency_manager" not in st.session_state:
 if "df_transactions" not in st.session_state:
     st.session_state.df_transactions = None
 
+if "last_devise_affichage" not in st.session_state:
+    st.session_state.last_devise_affichage = st.session_state.devise_affichage
+
 # Références
 currency_manager = st.session_state.currency_manager
 
@@ -366,39 +369,6 @@ col_title, col_currency = st.columns([3, 1])
 
 with col_title:
     st.divider()
-    
-    # Indicateur taux de change
-    cache_info = currency_manager.get_cache_info()
-    if cache_info["status"] != "Non initialisé":
-        # Conteneur HTML pour pouvoir le masquer côté client
-        st.markdown(
-            "<div id='fx-status-container'>",
-            unsafe_allow_html=True
-        )
-        
-        if cache_info["using_fallback"]:
-            st.warning(f"⚠️ {cache_info['status']}")
-        else:
-            st.success(f"✅ {cache_info['status']}")
-        
-        st.caption(f"Mise à jour: {cache_info['last_update']}")
-        
-        # Script pour masquer le conteneur après 2 secondes
-        st.markdown(
-            """
-            <script>
-            setTimeout(function() {
-                const rootDoc = window.parent.document;
-                const container = rootDoc.getElementById('fx-status-container');
-                if (container) {
-                    container.style.display = 'none';
-                }
-            }, 2000);
-            </script>
-            """,
-            unsafe_allow_html=True
-        )
-    
     # Indicateur PRU_vente migration
     if st.session_state.df_transactions is not None:
         ventes = st.session_state.df_transactions[
@@ -424,8 +394,16 @@ with col_currency:
         key="currency_toggle",
         help="Basculez entre Euro et Dollar pour l'affichage des montants"
     )
-    # Mise à jour directe avec la sélection
     st.session_state.devise_affichage = selected_devise
+    # Toast auto-disparaissant lors d'un changement de devise
+    if selected_devise != st.session_state.last_devise_affichage:
+        cache_info = currency_manager.get_cache_info()
+        if cache_info["status"] != "Non initialisé":
+            icon = "⚠️" if cache_info["using_fallback"] else "✅"
+            msg = f"{icon} {cache_info['status']} — Mise à jour: {cache_info['last_update']}"
+            st.toast(msg, icon="💱")
+        st.session_state.last_devise_affichage = selected_devise
+
 
 # -----------------------
 # Recherche Ticker - Fonctions
