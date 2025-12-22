@@ -227,74 +227,71 @@ def save_transactions_to_sheet(df: pd.DataFrame) -> bool:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_last_close_batch(tickers: list) -> dict:
-    result = {}
     if not tickers:
-        return result
-    
-    # Nettoyage et dédoublonnage
-    tickers = sorted({
-        t.strip().upper() for t in tickers
+        return {}
+
+    # Nettoyage, dédoublonnage + normalisation Euronext: .PAR -> .PA
+    tickers_clean = sorted({
+        str(t).strip().upper().replace(".PAR", ".PA")
+        for t in tickers
         if t and str(t).strip().upper() != "CASH"
     })
-    
-    if not tickers:
-        return result
-    
+    if not tickers_clean:
+        return {}
+
+    prices = {}
+
+    # 1) Batch rapide 1d
     try:
         data = yf.download(
-            tickers,
+            tickers_clean,
             period="1d",
             progress=False,
             threads=True,
             group_by="ticker",
             auto_adjust=False,
-            timeout=5,
+            timeout=8,
         )
-        
-        def get_last_close_for_ticker(t: str) -> float:
-            # 1️⃣ Tentative avec le batch 1 jour
-            try:
-                if isinstance(data.columns, pd.MultiIndex):
-                    # Cas multi-tickers
-                    if t in data:
-                        ser = data[t]["Close"].dropna()
-                        if not ser.empty:
-                            return float(ser.iloc[-1])
-                else:
-                    # Cas 1 seul ticker
-                    ser = data["Close"].dropna()
+
+        if isinstance(data.columns, pd.MultiIndex):
+            # colonnes: (TICKER, OHLCV)
+            lvl0 = set(data.columns.get_level_values(0))
+            for t in tickers_clean:
+                if t in lvl0:
+                    ser = data[t]["Close"].dropna()
                     if not ser.empty:
-                        return float(ser.iloc[-1])
-            except Exception:
-                pass
-            
-            # 2️⃣ Fallback : historique sur 5 jours pour CE ticker
-            try:
-                data_fb = yf.download(
-                    t,
-                    period="5d",
-                    progress=False,
-                    auto_adjust=False,
-                    timeout=5,
-                )
-                if "Close" in data_fb:
-                    ser_fb = data_fb["Close"].dropna()
-                    if not ser_fb.empty:
-                        return float(ser_fb.iloc[-1])
-            except Exception:
-                pass
-            
-            # 3️⃣ Échec complet → 0.0 (sera affiché N/A)
-            return 0.0
-        
-        for t in tickers:
-            result[t] = get_last_close_for_ticker(t)
-        
-        return result
-    
+                        prices[t] = float(ser.iloc[-1])
+        else:
+            # cas 1 seul ticker
+            if "Close" in data and len(tickers_clean) == 1:
+                ser = data["Close"].dropna()
+                if not ser.empty:
+                    prices[tickers_clean[0]] = float(ser.iloc[-1])
+
     except Exception:
-        # En cas de gros échec, on renvoie tout à 0.0
-        return {t: 0.0 for t in tickers}
+        pass
+
+    # 2) Fallback 5d pour ceux manquants
+    for t in tickers_clean:
+        if prices.get(t, 0.0) > 0:
+            continue
+        try:
+            fb = yf.download(
+                t,
+                period="5d",
+                progress=False,
+                auto_adjust=False,
+                timeout=8,
+            )
+            if "Close" in fb:
+                ser_fb = fb["Close"].dropna()
+                prices[t] = float(ser_fb.iloc[-1]) if not ser_fb.empty else 0.0
+            else:
+                prices[t] = 0.0
+        except Exception:
+            prices[t] = 0.0
+
+    return prices
 
 # -----------------------
 # Chargement initial données avec indicateurs visuels
@@ -688,6 +685,13 @@ with tab1:
                 if sel:
                     ticker_extracted = sel.split(" — ")[0]
                     st.session_state.ticker_selected = ticker_extracted
+                    ticker_extracted = sel.split(" — ")[0].strip().upper()
+                # Normalisation simple Euronext Paris : .PAR -> .PA (yfinance)
+                if ticker_extracted.endswith(".PAR"):
+                    ticker_extracted = ticker_extracted[:-4] + ".PA"
+
+                st.session_state.ticker_selected = ticker_extracted
+
             
             # Confirmation ticker sélectionné
             if st.session_state.ticker_selected:
