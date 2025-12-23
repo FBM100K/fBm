@@ -107,8 +107,8 @@ class PortfolioEngine:
                 f"1. Acheter en {existing_devise}\n"
                 f"2. Vendre votre position {existing_devise} avant d'acheter en {devise}"
             )
-        
-        return True, 
+        return True,""
+    
     def validate_sale(self, ticker: str, profil: str, quantite_vente: float, date_vente: datetime) -> Tuple[bool, str]:
         # Vérifier quantité pour LE PROFIL spécifique
         qty_disponible = self.get_position_quantity(ticker, profil=profil, date_limite=date_vente)
@@ -129,13 +129,16 @@ class PortfolioEngine:
     
     def prepare_achat_transaction(self, ticker: str, profil: str, quantite: float, prix_achat: float,
                                  frais: float, date_achat: datetime, devise: str, note: str = "",
-                                 currency_manager=None) -> Dict:
+                                 currency_manager=None, taux_change_override: Optional[float] = None) -> Dict:
         """Prépare une transaction d'achat avec taux de change figé."""
         devise_reference = "EUR"
         taux_change = 1.0
         
-        if devise != devise_reference and currency_manager:
-            taux_change = currency_manager.get_rate(devise_reference, devise)
+        if devise != devise_reference:
+            if taux_change_override is not None and taux_change_override > 0:
+                taux_change = float(taux_change_override)
+            elif currency_manager:
+                taux_change = currency_manager.get_rate(devise_reference, devise)
         
         return {
             "Date": date_achat.date() if isinstance(date_achat, datetime) else date_achat,
@@ -157,7 +160,7 @@ class PortfolioEngine:
     
     def prepare_sale_transaction(self, ticker: str, profil: str, quantite: float, prix_vente: float,
                                 frais: float, date_vente: datetime, devise: str, note: str = "",
-                                currency_manager=None) -> Optional[Dict]:
+                                currency_manager=None, taux_change_override: Optional[float] = None) -> Optional[Dict]:
         """Prépare une transaction de vente avec PRU_vente figé."""
         is_valid, error_msg = self.validate_sale(ticker, profil, quantite, date_vente)
         if not is_valid:
@@ -174,8 +177,11 @@ class PortfolioEngine:
         
         devise_reference = "EUR"
         taux_change = 1.0
-        if devise != devise_reference and currency_manager:
-            taux_change = currency_manager.get_rate(devise_reference, devise)
+        if devise != devise_reference:
+            if taux_change_override is not None and taux_change_override > 0:
+                taux_change = float(taux_change_override)
+            elif currency_manager:
+                taux_change = currency_manager.get_rate(devise_reference, devise)
         
         return {
             "Date": date_vente.date() if isinstance(date_vente, datetime) else date_vente,
