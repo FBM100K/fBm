@@ -689,9 +689,7 @@ with tab1:
                 # Normalisation simple Euronext Paris : .PAR -> .PA (yfinance)
                 if ticker_extracted.endswith(".PAR"):
                     ticker_extracted = ticker_extracted[:-4] + ".PA"
-
                 st.session_state.ticker_selected = ticker_extracted
-
             
             # Confirmation ticker sélectionné
             if st.session_state.ticker_selected:
@@ -734,7 +732,27 @@ with tab1:
             index=0,
             help="Devise dans laquelle la transaction est effectuée"
         )
-        
+        # --- Taux de change figé (modifiable) ---
+        devise_reference = "EUR"
+
+        taux_defaut = 1.0
+        if devise != devise_reference:
+            # taux EUR -> devise (ex: 1 EUR = 1.10 USD)
+            taux_defaut = currency_manager.get_rate(devise_reference, devise)
+
+        taux_change_input = st.text_input(
+            f"Taux de change figé ({devise_reference}→{devise})",
+            value=f"{taux_defaut:.6f}",
+            help="Par défaut: taux courant. Modifiez si vous voulez figer un taux spécifique sur cette transaction."
+        )
+
+        taux_change_override = parse_float(taux_change_input)
+        if devise == devise_reference:
+            taux_change_override = 1.0
+
+        if devise != devise_reference and taux_change_override <= 0:
+            st.error("❌ Le taux de change doit être > 0")
+
         note = st.text_area(
             "Note (optionnel)",
             "",
@@ -923,7 +941,8 @@ with tab1:
                             date_achat=date_tx,
                             devise=devise,
                             note=note,
-                            currency_manager=currency_manager
+                            currency_manager=currency_manager,
+                            taux_change_override=taux_change_override
                         )
                 
                 elif type_tx == "Vente":
@@ -936,7 +955,8 @@ with tab1:
                         date_vente=date_tx,
                         devise=devise,
                         note=note,
-                        currency_manager=currency_manager
+                        currency_manager=currency_manager,
+                        taux_change_override=taux_change_override
                     )
                     if transaction is None:
                         st.error("❌ Impossible de créer la vente (quantité insuffisante)")
